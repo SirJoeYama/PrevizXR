@@ -1,4 +1,5 @@
-import { ACTOR_CLIPS, SCENE_FORMAT_VERSION, type SceneDoc, type SceneObject } from './scene';
+import { ASPECTS, FPS_OPTIONS, SENSORS, clampFocal } from '../camera/lens';
+import { ACTOR_CLIPS, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type SceneDoc, type SceneObject } from './scene';
 
 export class SceneFormatError extends Error {}
 
@@ -22,7 +23,30 @@ export function parseScene(input: unknown): SceneDoc {
   const objects = data.objects.map((o, i) => parseObject(o, i));
   const ids = new Set(objects.map((o) => o.id));
   if (ids.size !== objects.length) throw new SceneFormatError('Scene file has duplicate object ids.');
-  return { format: 'previzxr.scene', version: SCENE_FORMAT_VERSION, id: data.id, name: data.name, objects };
+  return { format: 'previzxr.scene', version: SCENE_FORMAT_VERSION, id: data.id, name: data.name, objects, camera: parseCamera(data.camera) };
+}
+
+/** Camera rig with every missing or invalid field replaced by its default (older files have no camera). */
+function parseCamera(c: unknown): CameraRig {
+  const rig = defaultCamera();
+  if (!isObj(c)) return rig;
+  const t = c.transform;
+  if (isObj(t) && isNums(t.position, 3) && isNums(t.rotation, 4)) {
+    rig.transform.position = [...(t.position as [number, number, number])];
+    rig.transform.rotation = [...(t.rotation as [number, number, number, number])];
+  }
+  const l = isObj(c.lens) ? c.lens : {};
+  const lens = rig.lens;
+  if (typeof l.focalLength === 'number' && Number.isFinite(l.focalLength)) lens.focalLength = clampFocal(l.focalLength);
+  if (typeof l.sensor === 'string' && l.sensor in SENSORS) lens.sensor = l.sensor as typeof lens.sensor;
+  if (typeof l.aspect === 'string' && l.aspect in ASPECTS) lens.aspect = l.aspect as typeof lens.aspect;
+  if (FPS_OPTIONS.includes(l.fps as never)) lens.fps = l.fps as typeof lens.fps;
+  if (l.focusMode === 'auto' || l.focusMode === 'manual') lens.focusMode = l.focusMode;
+  if (typeof l.focusDistance === 'number' && l.focusDistance > 0) lens.focusDistance = l.focusDistance;
+  if (isObj(l.guides)) {
+    for (const k of ['thirds', 'safe', 'center'] as const) if (typeof l.guides[k] === 'boolean') lens.guides[k] = l.guides[k];
+  }
+  return rig;
 }
 
 function parseObject(o: unknown, i: number): SceneObject {

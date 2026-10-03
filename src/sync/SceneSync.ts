@@ -73,6 +73,10 @@ export class SceneSync {
   /** Labels, paths and selection outline: visible while editing, never rendered in passes. */
   readonly helpers = new Group();
   private readonly entries = new Map<string, Entry>();
+  /** Roots owned elsewhere (the virtual camera) that can still be picked, selected and moved. */
+  private readonly external = new Map<string, Object3D>();
+  /** Editor-only parts inside object content (light bulbs, loading boxes), hidden in clean renders. */
+  readonly inlineHelpers = new Set<Object3D>();
   private readonly selectionBounds = new Box3();
   /** Precise bounds (skinned meshes included), refreshed every frame for the selected object. */
   private readonly selectionBox = new Box3Helper(this.selectionBounds, 0xffb547);
@@ -99,9 +103,20 @@ export class SceneSync {
     return this.previewTime !== null;
   }
 
-  /** Root Object3D of a scene object (moves with its transform). */
-  rootOf(id: string): Group | undefined {
-    return this.entries.get(id)?.root;
+  /** Root Object3D of a scene object or registered external root (moves with its transform). */
+  rootOf(id: string): Object3D | undefined {
+    return this.entries.get(id)?.root ?? this.external.get(id);
+  }
+
+  /** Makes an externally managed root pickable and selectable under `id`. */
+  registerRoot(id: string, root: Object3D): void {
+    root.userData.objectId = id;
+    this.external.set(id, root);
+  }
+
+  /** Everything a pointer can select. */
+  get pickRoots(): Object3D[] {
+    return [this.root, ...this.external.values()];
   }
 
   /** Scene object id that owns a hit object, or null. */
@@ -125,8 +140,8 @@ export class SceneSync {
       if (e.mixer && this.previewTime === null) e.mixer.update(dt);
       this.placeLabel(e);
     }
-    const sel = this.editor.selectedId ? this.entries.get(this.editor.selectedId) : undefined;
-    if (sel) this.selectionBounds.setFromObject(sel.root, true);
+    const sel = this.editor.selectedId ? this.entries.get(this.editor.selectedId)?.root : undefined;
+    if (sel) this.selectionBounds.setFromObject(sel, true);
   }
 
   private reconcile(): void {
@@ -166,6 +181,7 @@ export class SceneSync {
   }
 
   private destroy(e: Entry): void {
+    this.setContent(e, null);
     e.root.removeFromParent();
     e.label.removeFromParent();
     e.label.material.map?.dispose();
@@ -208,10 +224,16 @@ export class SceneSync {
   }
 
   private setContent(e: Entry, content: Object3D | null): void {
-    if (e.content) e.root.remove(e.content);
+    if (e.content) {
+      e.root.remove(e.content);
+      e.content.traverse((o) => this.inlineHelpers.delete(o));
+    }
     e.content = content;
     if (!content) return;
     e.root.add(content);
+    content.traverse((o) => {
+      if (o.userData.helper) this.inlineHelpers.add(o);
+    });
     tmpBox.setFromObject(content, true);
     e.height = tmpBox.isEmpty() ? 0.5 : Math.max(tmpBox.max.y, 0.2);
   }
@@ -324,8 +346,9 @@ export class SceneSync {
   }
 
   private updateSelection(): void {
-    const sel = this.editor.selectedId ? this.entries.get(this.editor.selectedId) : undefined;
+    // External roots (the camera) show their own selection cues: gizmo and frustum lines.
+    const sel = this.editor.selectedId ? this.entries.get(this.editor.selectedId)?.root : undefined;
     this.selectionBox.visible = !!sel;
-    if (sel) this.selectionBounds.setFromObject(sel.root, true);
+    if (sel) this.selectionBounds.setFromObject(sel, true);
   }
 }

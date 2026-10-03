@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SCENE_FORMAT_VERSION, assetKey, createScene, identityTransform } from './scene';
+import { CAMERA_ID, SCENE_FORMAT_VERSION, assetKey, createScene, identityTransform } from './scene';
 import { idColorAt, nextIdColor } from './idColors';
 import { Editor, uniqueName } from './Editor';
 import { SceneFormatError, parseScene, serializeScene } from './serialize';
@@ -183,5 +183,55 @@ describe('scene serialization', () => {
     };
     const parsed = parseScene({ ...doc, objects: [actor] });
     expect(parsed.objects[0].actor).toEqual({ clip: 'idle', speed: 1.3, waypoints: [], loop: true });
+  });
+});
+
+describe('camera rig', () => {
+  it('is part of every new scene with sensible defaults', () => {
+    const cam = createScene().camera;
+    expect(cam.lens).toMatchObject({ focalLength: 35, sensor: 'super35', aspect: '16:9', fps: 24, focusMode: 'auto' });
+    expect(cam.transform.position).toEqual([0, 1.6, 4]);
+  });
+
+  it('can be selected and moved like an object, but never scaled', () => {
+    const ed = new Editor();
+    ed.select(CAMERA_ID);
+    expect(ed.cameraSelected).toBe(true);
+    expect(ed.selected).toBeUndefined();
+    ed.setTransform(CAMERA_ID, { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [5, 5, 5] });
+    expect(ed.doc.camera.transform).toEqual({ position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
+    ed.undo();
+    expect(ed.doc.camera.transform.position).toEqual([0, 1.6, 4]);
+    expect(ed.cameraSelected).toBe(true);
+  });
+
+  it('ignores delete and duplicate', () => {
+    const ed = new Editor();
+    ed.remove(CAMERA_ID);
+    expect(ed.duplicate(CAMERA_ID)).toBeUndefined();
+    expect(ed.canUndo).toBe(false);
+  });
+
+  it('records lens changes, with continuous changes as one step', () => {
+    const ed = new Editor();
+    ed.updateLens((l) => (l.aspect = '2.39:1'));
+    ed.begin();
+    for (const f of [40, 50, 60]) ed.updateLens((l) => (l.focalLength = f), true);
+    ed.commit();
+    expect(ed.doc.camera.lens.focalLength).toBe(60);
+    ed.undo();
+    expect(ed.doc.camera.lens.focalLength).toBe(35);
+    expect(ed.doc.camera.lens.aspect).toBe('2.39:1');
+  });
+
+  it('is added to older scene files and repaired when invalid', () => {
+    const old: Partial<ReturnType<typeof createScene>> = createScene();
+    delete old.camera;
+    expect(parseScene(old).camera).toEqual(createScene().camera);
+    const bad = { ...createScene(), camera: { transform: { position: [0, 1] }, lens: { focalLength: 500, sensor: 'imax', aspect: '4:3', fps: 60, guides: { thirds: false } } } };
+    const cam = parseScene(bad).camera;
+    expect(cam.transform.position).toEqual([0, 1.6, 4]);
+    expect(cam.lens).toMatchObject({ focalLength: 135, sensor: 'super35', aspect: '16:9', fps: 24 });
+    expect(cam.lens.guides.thirds).toBe(false);
   });
 });

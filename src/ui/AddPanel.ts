@@ -105,7 +105,7 @@ export class AddPanel {
       el(
         'button',
         { type: 'button', class: 'tile-btn', title: credit ? `${title}\n${credit}` : title, 'aria-label': `Add ${title}`, onclick: () => this.onSpawn(item) },
-        thumb ? el('img', { src: thumb, alt: '', loading: 'lazy', crossorigin: 'anonymous' }) : el('span', { class: 'tile-icon', text: item.kind === 'light' ? '💡' : '▢', 'aria-hidden': 'true' }),
+        thumb ? el('img', { src: thumb, alt: '', loading: 'lazy' }) : el('span', { class: 'tile-icon', text: item.kind === 'light' ? '💡' : '▢', 'aria-hidden': 'true' }),
         el('span', { class: 'tile-label', text: title }),
       ),
       page ? el('a', { class: 'tile-src', href: page, target: '_blank', rel: 'noopener', 'aria-label': `${title} on Poly Pizza`, text: '↗' }) : null,

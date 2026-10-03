@@ -1,9 +1,11 @@
 import { nextIdColor } from './idColors';
 import {
+  CAMERA_ID,
   cloneDoc,
   createId,
   createScene,
   defaultActorSettings,
+  type LensSettings,
   type SceneDoc,
   type SceneObject,
   type Transform,
@@ -38,8 +40,13 @@ export class Editor {
     return this.current;
   }
 
+  /** The selected scene object (undefined when nothing or the camera is selected). */
   get selected(): SceneObject | undefined {
     return this.selectedId ? this.find(this.selectedId) : undefined;
+  }
+
+  get cameraSelected(): boolean {
+    return this.selectedId === CAMERA_ID;
   }
 
   get canUndo(): boolean {
@@ -72,7 +79,7 @@ export class Editor {
   }
 
   select(id: string | null): void {
-    if (id !== null && !this.find(id)) id = null;
+    if (id !== null && id !== CAMERA_ID && !this.find(id)) id = null;
     if (id === this.selectedId) return;
     this.selectedId = id;
     this.emit('selection');
@@ -162,12 +169,23 @@ export class Editor {
     });
   }
 
-  /** Sets a transform; pass transient=true while dragging (between begin() and commit()). */
+  /** Sets a transform (an object's, or the camera's for CAMERA_ID); pass transient=true while dragging. */
   setTransform(id: string, t: Transform, transient = false): void {
     const apply = (doc: SceneDoc) => {
+      if (id === CAMERA_ID) {
+        doc.camera.transform = { position: [...t.position], rotation: [...t.rotation], scale: [1, 1, 1] };
+        return;
+      }
       const obj = doc.objects.find((o) => o.id === id);
       if (obj) obj.transform = cloneDoc(t);
     };
+    if (transient) this.transient(apply);
+    else this.edit(apply);
+  }
+
+  /** Changes lens settings; pass transient=true for continuous changes (between begin() and commit()). */
+  updateLens(mutate: (lens: LensSettings) => void, transient = false): void {
+    const apply = (doc: SceneDoc) => mutate(doc.camera.lens);
     if (transient) this.transient(apply);
     else this.edit(apply);
   }
@@ -185,7 +203,7 @@ export class Editor {
   }
 
   private afterDocChange(): void {
-    if (this.selectedId && !this.find(this.selectedId)) {
+    if (this.selectedId && this.selectedId !== CAMERA_ID && !this.find(this.selectedId)) {
       this.selectedId = null;
       this.emit('selection');
     }

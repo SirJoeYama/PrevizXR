@@ -13,11 +13,13 @@ import {
   type Vector2,
 } from 'three';
 import type { App } from '../app/App';
+import { clampFocal } from '../camera/lens';
+import type { VirtualCamera } from '../camera/VirtualCamera';
 import type { Playback } from '../app/Playback';
 import { spawn, type Spawnable } from '../app/spawn';
 import { readTransform, snapToFloor } from '../interaction/ops';
 import type { Editor } from '../model/Editor';
-import type { Vec3 } from '../model/scene';
+import { CAMERA_ID, type Transform, type Vec3 } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { VRMenu } from '../ui/vr/VRMenu';
 import type { XRInputSlot } from './XRInput';
@@ -25,6 +27,7 @@ import type { XRInputSlot } from './XRInput';
 // xr-standard gamepad mapping (Quest Touch controllers)
 const TRIGGER = 0;
 const SQUEEZE = 1;
+const STICK_PRESS = 3;
 const BUTTON_LOWER = 4; // A (right) / X (left)
 const BUTTON_UPPER = 5; // B (right) / Y (left)
 const AXIS_X = 2;
@@ -38,6 +41,9 @@ const TWIST_SPEED = 2.5; // rad/s while grabbing
 const RAY_LENGTH = 5;
 const MAX_PICK = 30;
 const SPAWN_DISTANCE = 1.6;
+const ZOOM_SPEED = 1.2; // focal length ×e per second at full stick
+/** Where the camera sits on the right controller: slightly above and in front, looking along the ray. */
+const HOLD_OFFSET = new Matrix4().makeTranslation(0, 0.035, -0.06);
 
 const UP = new Vector3(0, 1, 0);
 const floorPlane = new Plane(UP.clone(), 0);
@@ -76,6 +82,8 @@ export class XREditor {
   private readonly hands: Hand[];
   private readonly raycaster = new Raycaster();
   private scaling: { id: string; d0: number; s0: Vector3 } | null = null;
+  /** The hand holding the virtual camera, if any. */
+  private holder: Hand | null = null;
   private turnArmed = true;
 
   private readonly m = new Matrix4();
@@ -91,8 +99,13 @@ export class XREditor {
     private readonly editor: Editor,
     private readonly sync: SceneSync,
     private readonly playback: Playback,
+    private readonly vcam: VirtualCamera,
   ) {
     this.menu = new VRMenu(editor, playback, {
+      isHoldingCamera: () => this.holder !== null,
+      toggleHoldCamera: () => this.toggleHold(this.hands.find((h) => h.slot.handedness === 'right') ?? this.hands[1]),
+      bringCamera: () => this.bringCamera(),
+      focusDistance: () => this.vcam.focusDistance,
       spawn: (item) => this.spawnInFront(item),
       isPathMode: () => this.pathMode,
       setPathMode: (on) => this.setPathMode(on),
@@ -113,6 +126,7 @@ export class XREditor {
       reticle.renderOrder = 30;
       reticle.visible = false;
       app.scene.add(reticle);
+      app.addEditorOnly(reticle);
       return { slot, prev: [], line, reticle, grab: null, hitObject: null, hitPoint: null, menuUv: null, floorPoint: null };
     });
 
@@ -160,7 +174,9 @@ export class XREditor {
     const up = (i: number) => !pressed(i) && !!hand.prev[i];
     const isLeft = slot.handedness === 'left';
 
-    if (down(SQUEEZE)) this.onSqueeze(hand, pressed(TRIGGER));
+    const holding = this.holder === hand;
+    if (down(STICK_PRESS) && !isLeft) this.toggleHold(hand);
+    if (down(SQUEEZE) && !holding) this.onSqueeze(hand, pressed(TRIGGER));
     if (up(SQUEEZE)) this.onRelease(hand);
     if (down(TRIGGER) && !hand.grab) this.onTrigger(hand);
     if (down(BUTTON_LOWER)) {
@@ -174,7 +190,8 @@ export class XREditor {
 
     const ax = dz(pad.axes[AXIS_X] ?? 0);
     const ay = dz(pad.axes[AXIS_Y] ?? 0);
-    if (hand.grab) this.updateGrab(hand, ax, ay, dt);
+    if (holding) this.updateHold(hand, ay, dt);
+    else if (hand.grab) this.updateGrab(hand, ax, ay, dt);
     else if (isLeft) this.locomote(ax, ay, dt);
     else this.snapTurn(ax);
 
@@ -207,7 +224,7 @@ export class XREditor {
     this.menu.pointer(this.hands.find((h) => h.menuUv)?.menuUv ?? null);
 
     if (!hand.menuUv && !hand.grab) {
-      const hit = this.raycaster.intersectObject(this.sync.root, true)[0];
+      const hit = this.raycaster.intersectObjects(this.sync.pickRoots, true)[0];
       if (hit) {
         hand.hitObject = this.sync.objectIdOf(hit.object);
         hand.hitPoint = hit.point;
@@ -244,7 +261,7 @@ export class XREditor {
 
   private onSqueeze(hand: Hand, triggerHeld: boolean): void {
     const other = this.hands.find((h) => h !== hand && h.grab);
-    if (other?.grab && (!hand.hitObject || hand.hitObject === other.grab.id)) {
+    if (other?.grab && other.grab.id !== CAMERA_ID && (!hand.hitObject || hand.hitObject === other.grab.id)) {
       const root = this.sync.rootOf(other.grab.id);
       if (!root) return;
       this.scaling = { id: other.grab.id, d0: this.handDistance(), s0: root.scale.clone() };
@@ -258,7 +275,7 @@ export class XREditor {
     hand.grab = {
       id: hand.hitObject,
       offset: new Matrix4(),
-      free: triggerHeld,
+      free: triggerHeld || hand.hitObject === CAMERA_ID,
       startQuat: new Quaternion(),
       startYaw: 0,
       twist: 0,
@@ -324,6 +341,43 @@ export class XREditor {
   private releaseAll(): void {
     for (const h of this.hands) if (h.grab) this.onRelease(h);
     this.scaling = null;
+    if (this.holder) this.toggleHold(this.holder);
+  }
+
+  /** Takes the camera into a hand (it follows the controller and points along its ray), or lets go. */
+  private toggleHold(hand: Hand): void {
+    if (this.holder) {
+      this.holder = null;
+      this.editor.commit();
+    } else {
+      if (hand.grab || this.playback.playing) return;
+      this.holder = hand;
+      this.editor.begin();
+      this.editor.select(CAMERA_ID);
+    }
+    this.menu.invalidate();
+  }
+
+  private updateHold(hand: Hand, ay: number, dt: number): void {
+    this.m.copy(hand.slot.ray.matrixWorld).multiply(HOLD_OFFSET);
+    this.m.decompose(this.v, this.q, this.s);
+    const t: Transform = { position: this.v.toArray() as Vec3, rotation: this.q.toArray() as Transform['rotation'], scale: [1, 1, 1] };
+    this.editor.setTransform(CAMERA_ID, t, true);
+    if (ay) {
+      // Stick up zooms in (longer focal length).
+      this.editor.updateLens((l) => (l.focalLength = Math.round(clampFocal(l.focalLength * Math.exp(-ay * ZOOM_SPEED * dt)) * 10) / 10), true);
+    }
+  }
+
+  /** Puts the camera in front of the user at eye height, looking where they look. */
+  private bringCamera(): void {
+    if (this.holder) return;
+    const head = new Vector3().setFromMatrixPosition(this.app.camera.matrixWorld);
+    const yaw = this.yawOf(this.app.camera.matrixWorld);
+    const pos: Vec3 = [round(head.x - Math.sin(yaw) * 0.6), round(head.y - 0.1), round(head.z - Math.cos(yaw) * 0.6)];
+    this.q.setFromAxisAngle(UP, yaw);
+    this.editor.setTransform(CAMERA_ID, { position: pos, rotation: this.q.toArray() as Transform['rotation'], scale: [1, 1, 1] });
+    this.editor.select(CAMERA_ID);
   }
 
   private locomote(ax: number, ay: number, dt: number): void {

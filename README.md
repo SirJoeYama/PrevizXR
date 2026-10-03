@@ -9,17 +9,18 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 ![PrevizXR screenshot](docs/screenshot.svg)
 <!-- Screenshot placeholder: replace docs/screenshot.svg with a real capture -->
 
-> **Status:** early development. Milestones 1–2 of 7 are done: scene building in VR and on desktop, with a 2,000+ model library. See the [roadmap](#roadmap).
+> **Status:** early development. Milestones 1–3 of 7 are done: scene building in VR and on desktop, a 2,000+ model library, and a virtual camera with real lens controls. See the [roadmap](#roadmap).
 
 ## Features
 
 - **Scene building** *(available now)*: four rigged humanoid actors with idle, walk, run and sit clips and waypoint paths you draw on the floor; blockout shapes (box, cylinder, wall, door frame, chair, table, car); 42 bundled furniture, street, vehicle, nature and building models; point and spot lights. Every object gets a flat ID color and a name label. Grab, move, rotate, scale, snap to floor, duplicate, delete, undo and redo, in VR and on desktop. Preview plays actor paths and clips from the start.
 - **Model library** *(available now)*: search and place any of the 2,292 [Poly by Google](https://poly.pizza/u/Poly%20by%20Google) models on Poly Pizza (CC-BY 3.0), loaded on demand. Attribution is tracked per scene in the Credits panel. See [ASSETS.md](ASSETS.md).
 - **Scenes** *(available now)*: autosaved in the browser (IndexedDB), reopened on the next visit, and importable/exportable as `.previz.json` files.
+- **Virtual camera** *(available now)*: a camera you hold in VR (it follows your right controller) or fly on desktop, with a live monitor on the camera body and a picture-in-picture monitor on desktop. Focal length from 14 to 135 mm (presets or continuous) gives the correct field of view for a Super 35 (24.89 × 18.66 mm) or full-frame (36 × 24 mm) sensor at 16:9, 9:16, 2.39:1 or 1:1. Also: 24/25/30 fps, autofocus on the frame centre or manual focus distance, and rule-of-thirds, safe-area and centre guides.
 
 Planned:
 
-- **Virtual camera:** handheld camera with a live floating monitor; real focal lengths (14–135 mm) on Super35 or full-frame sensors; 16:9, 9:16, 2.39:1 and 1:1 aspect ratios; 24/25/30 fps; frame guides. Record takes with a countdown and play them back in the headset. Keyframed dolly/crane paths on desktop.
+- **Takes:** record camera moves with a countdown and play them back in the headset, with optional path smoothing. Keyframed dolly/crane paths on desktop.
 - **Export passes:** clay, color_id, depth, normals and OpenPose (COCO-18), all at the same resolution and frame rate, encoded to H.264 MP4 with WebCodecs (or a PNG-sequence zip as a fallback). Plus the camera as JSON and as an animated glTF, bundled into one zip with a `manifest.json`.
 
 ## Setup
@@ -67,6 +68,9 @@ Open http://localhost:5173.
 | `Ctrl+D` / `Delete` | Duplicate / delete |
 | `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | Undo / redo |
 | `Space` | Preview actor paths from the start, or stop |
+| `C` | Select the camera |
+| `V` | Look through the camera (letterboxed); drag to aim, `W` `A` `S` `D` / `Q` `E` to move, wheel to zoom, `V` or `Esc` to exit |
+| `M` | Show or hide the camera monitor in the viewport corner |
 
 Add objects from the **Add** panel in the sidebar: they appear on the floor at the centre of the view, facing you.
 
@@ -86,6 +90,10 @@ Add objects from the **Add** panel in the sidebar: they appear on the floor at t
 | Right thumbstick | Snap turn 30° |
 | **A** | Snap the selection to the floor |
 | **X** / **Y** | Undo / redo |
+| Right thumbstick click | Hold the camera in your right hand (it points where the controller points), or let go |
+| Right thumbstick up/down while holding | Zoom (focal length) |
+
+The menu's **Camera** tab has focal presets, sensor, aspect, fps, guides and focus, plus **Bring here** to fetch the camera. Grabbing the camera with grip rotates it freely, unlike props, which stay upright. The monitor on top of the camera shows exactly what it records.
 
 The menu's **Library** tab has one-tap searches (chair, car, tree, …) because there's no keyboard in VR. Use the desktop sidebar to search the full library by name.
 
@@ -111,7 +119,7 @@ Tips:
 
 1. ✅ Vite + Three.js skeleton, desktop mode, Enter VR, Pages deploy
 2. ✅ Spawning and manipulating actors and props in VR and desktop; save/load; Poly by Google library
-3. Virtual camera with live monitor and lens controls
+3. ✅ Virtual camera with live monitor and lens controls
 4. Take recording and playback
 5. Render mode with clay, color_id and depth to MP4
 6. Normals and pose passes, camera export, zip bundle

@@ -20,6 +20,8 @@ export class DesktopEditor {
   readonly gizmo: TransformControls;
   /** When true, clicks on the floor add waypoints to the selected actor. */
   pathMode = false;
+  /** Returns true while another mode (camera view) owns the mouse: no picking, no gizmo. */
+  suspended: () => boolean = () => false;
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
   private down: { x: number; y: number; onGizmo: boolean } | null = null;
@@ -37,6 +39,7 @@ export class DesktopEditor {
     const helper = this.gizmo.getHelper();
     helper.traverse((o) => (o.userData.helper = true));
     app.scene.add(helper);
+    app.addEditorOnly(helper);
 
     this.gizmo.addEventListener('dragging-changed', (e) => {
       app.desktop.orbit.enabled = !e.value;
@@ -63,7 +66,7 @@ export class DesktopEditor {
     dom.addEventListener('pointerup', (e) => {
       const d = this.down;
       this.down = null;
-      if (!d || d.onGizmo || e.button !== 0) return;
+      if (!d || d.onGizmo || e.button !== 0 || this.suspended()) return;
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > CLICK_SLOP_PX) return;
       this.onClick(e);
     });
@@ -114,10 +117,15 @@ export class DesktopEditor {
     orbit.update();
   }
 
+  /** Re-evaluates whether the gizmo should be attached (call when a mode changes). */
+  refresh(): void {
+    this.attach();
+  }
+
   private attach(): void {
     const id = this.editor.selectedId;
     const root = id ? this.sync.rootOf(id) : undefined;
-    const usable = root && !this.playback.playing && !this.app.xrSession.presenting;
+    const usable = root && !this.playback.playing && !this.app.xrSession.presenting && !this.suspended();
     if (usable) {
       if (this.gizmo.object !== root) this.gizmo.attach(root);
     } else if (this.gizmo.object) {
@@ -140,7 +148,7 @@ export class DesktopEditor {
       return;
     }
 
-    const hits = this.raycaster.intersectObject(this.sync.root, true);
+    const hits = this.raycaster.intersectObjects(this.sync.pickRoots, true);
     const id = hits.length ? this.sync.objectIdOf(hits[0].object) : null;
     this.editor.select(id);
   }

@@ -2,7 +2,7 @@ import { Euler, Quaternion } from 'three';
 import type { DesktopEditor, GizmoMode } from '../desktop/DesktopEditor';
 import { snapToFloor } from '../interaction/ops';
 import type { Editor } from '../model/Editor';
-import { ACTOR_CLIPS, DEFAULT_SPEED, type SceneObject, type Transform } from '../model/scene';
+import { ACTOR_CLIPS, CAMERA_ID, DEFAULT_SPEED, type SceneObject, type Transform } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { el, section, setValue } from './dom';
 
@@ -30,6 +30,11 @@ export class InspectorPanel {
   }
 
   private render(force = false): void {
+    if (this.editor.cameraSelected) {
+      if (this.renderedId !== CAMERA_ID || force) this.buildCamera();
+      this.refresh?.();
+      return;
+    }
     const obj = this.editor.selected;
     if (!obj) {
       this.renderedId = null;
@@ -105,50 +110,98 @@ export class InspectorPanel {
     this.refresh = () => updaters.forEach((u) => u());
   }
 
-  private transformFields(id: string, updaters: Array<() => void>): HTMLElement {
+  /**
+   * Position plus rotation fields. Objects get turn (yaw) and uniform scale; the camera gets pan, tilt and roll.
+   */
+  private transformFields(id: string, updaters: Array<() => void>, camera = false): HTMLElement {
+    const read = (): Transform | undefined => (id === CAMERA_ID ? this.editor.doc.camera.transform : this.editor.find(id)?.transform);
     const commit = (mutate: (t: Transform) => void) => {
-      const obj = this.editor.find(id);
-      if (!obj) return;
-      const t = structuredClone(obj.transform);
+      const current = read();
+      if (!current) return;
+      const t = structuredClone(current);
       mutate(t);
       this.editor.setTransform(id, t);
     };
-    const num = (label: string, step: number, read: (o: SceneObject) => number, write: (t: Transform, v: number) => void) => {
+    const num = (label: string, step: number, get: (t: Transform) => number, set: (t: Transform, v: number) => void, wide = false) => {
       const input = el('input', {
-        class: 'input num',
+        class: wide ? 'input num wide' : 'input num',
         type: 'number',
         step: String(step),
         'aria-label': label,
         onchange: () => {
           const v = parseFloat(input.value);
-          if (Number.isFinite(v)) commit((t) => write(t, v));
+          if (Number.isFinite(v)) commit((t) => set(t, v));
         },
       });
       updaters.push(() => {
-        const o = this.editor.find(id);
-        if (o) setValue(input, String(+read(o).toFixed(3)));
+        const t = read();
+        if (t) setValue(input, String(+get(t).toFixed(camera ? 1 : 3)));
       });
       return input;
     };
-    const yaw = (o: SceneObject) => euler.setFromQuaternion(quat.fromArray(o.transform.rotation), 'YXZ').y * DEG;
-    const setYaw = (t: Transform, deg: number) => {
-      euler.setFromQuaternion(quat.fromArray(t.rotation), 'YXZ');
-      euler.y = deg / DEG;
-      t.rotation = quat.setFromEuler(euler).toArray() as Transform['rotation'];
-    };
+    const angle = (axis: 'x' | 'y' | 'z') => ({
+      get: (t: Transform) => euler.setFromQuaternion(quat.fromArray(t.rotation), 'YXZ')[axis] * DEG,
+      set: (t: Transform, deg: number) => {
+        euler.setFromQuaternion(quat.fromArray(t.rotation), 'YXZ');
+        euler[axis] = deg / DEG;
+        t.rotation = quat.setFromEuler(euler).toArray() as Transform['rotation'];
+      },
+    });
+    const pan = angle('y');
+    const tilt = angle('x');
+    const roll = angle('z');
 
     return el(
       'div',
       { class: 'grid-fields' },
       el('span', { class: 'field-label', text: 'Position' }),
-      num('Position X (m)', 0.1, (o) => o.transform.position[0], (t, v) => (t.position[0] = v)),
-      num('Position Y (m)', 0.1, (o) => o.transform.position[1], (t, v) => (t.position[1] = v)),
-      num('Position Z (m)', 0.1, (o) => o.transform.position[2], (t, v) => (t.position[2] = v)),
-      el('span', { class: 'field-label', text: 'Turn °' }),
-      num('Rotation about vertical axis (degrees)', 15, yaw, setYaw),
-      el('span', { class: 'field-label', text: 'Scale' }),
-      num('Uniform scale', 0.1, (o) => o.transform.scale[1], (t, v) => (t.scale = [v, v, v])),
+      num('Position X (m)', 0.1, (t) => t.position[0], (t, v) => (t.position[0] = v)),
+      num('Position Y (m)', 0.1, (t) => t.position[1], (t, v) => (t.position[1] = v)),
+      num('Position Z (m)', 0.1, (t) => t.position[2], (t, v) => (t.position[2] = v)),
+      ...(camera
+        ? [
+            el('span', { class: 'field-label', text: 'Pan Tilt Roll' }),
+            num('Pan (degrees)', 5, pan.get, pan.set),
+            num('Tilt (degrees)', 5, tilt.get, tilt.set),
+            num('Roll / dutch angle (degrees)', 5, roll.get, roll.set),
+          ]
+        : [
+            el('span', { class: 'field-label', text: 'Turn °' }),
+            num('Rotation about vertical axis (degrees)', 15, pan.get, pan.set, true),
+            el('span', { class: 'field-label', text: 'Scale' }),
+            num('Uniform scale', 0.1, (t) => t.scale[1], (t, v) => (t.scale = [v, v, v]), true),
+          ]),
     );
+  }
+
+  private buildCamera(): void {
+    this.renderedId = CAMERA_ID;
+    const updaters: Array<() => void> = [];
+    const level = () => {
+      const t = structuredClone(this.editor.doc.camera.transform);
+      euler.setFromQuaternion(quat.fromArray(t.rotation), 'YXZ');
+      euler.x = 0;
+      euler.z = 0;
+      t.rotation = quat.setFromEuler(euler).toArray() as Transform['rotation'];
+      this.editor.setTransform(CAMERA_ID, t);
+    };
+    const eye = () => {
+      const t = structuredClone(this.editor.doc.camera.transform);
+      t.position[1] = 1.6;
+      this.editor.setTransform(CAMERA_ID, t);
+    };
+    this.body.replaceChildren(
+      el('div', { class: 'name-row' }, el('span', { class: 'swatch cam', 'aria-hidden': 'true' }), el('strong', { text: 'Camera' })),
+      this.transformFields(CAMERA_ID, updaters, true),
+      el(
+        'div',
+        { class: 'row' },
+        el('button', { class: 'btn', type: 'button', text: 'Level', title: 'Remove tilt and roll', onclick: level }),
+        el('button', { class: 'btn', type: 'button', text: 'Eye height', title: 'Lens at 1.6 m', onclick: eye }),
+      ),
+      el('p', { class: 'hint', text: 'Lens and format settings are in the Camera panel. Press V to look through it.' }),
+    );
+    this.refresh = () => updaters.forEach((u) => u());
   }
 
   private actorFields(id: string, updaters: Array<() => void>): HTMLElement {

@@ -3,7 +3,12 @@
  * This is the single source of truth; the Three.js scene graph is derived from it by the sync layer.
  */
 
+import type { AspectId, Fps, SensorId } from '../camera/lens';
+
 export const SCENE_FORMAT_VERSION = 1;
+
+/** Selection id of the scene's virtual camera (it is not in `objects`, so it never gets an ID color). */
+export const CAMERA_ID = 'camera';
 
 export type Vec3 = [number, number, number];
 /** Quaternion as [x, y, z, w]. */
@@ -72,12 +77,39 @@ export interface SceneObject {
   light?: LightSettings;
 }
 
+export interface Guides {
+  thirds: boolean;
+  /** Action-safe (93%) and title-safe (90%) frames. */
+  safe: boolean;
+  center: boolean;
+}
+
+export interface LensSettings {
+  /** Millimetres, 14–135. */
+  focalLength: number;
+  sensor: SensorId;
+  aspect: AspectId;
+  fps: Fps;
+  /** auto: focus on whatever is under the frame centre; manual: use focusDistance. */
+  focusMode: 'auto' | 'manual';
+  /** Metres (used in manual mode). */
+  focusDistance: number;
+  guides: Guides;
+}
+
+/** The virtual camera. Looks down its local -Z axis, +Y up. */
+export interface CameraRig {
+  transform: Transform;
+  lens: LensSettings;
+}
+
 export interface SceneDoc {
   format: 'previzxr.scene';
   version: number;
   id: string;
   name: string;
   objects: SceneObject[];
+  camera: CameraRig;
 }
 
 export function identityTransform(): Transform {
@@ -95,7 +127,25 @@ export function createScene(name = 'Untitled scene'): SceneDoc {
     id: createId(),
     name,
     objects: [],
+    camera: defaultCamera(),
   };
+}
+
+export function defaultLens(): LensSettings {
+  return {
+    focalLength: 35,
+    sensor: 'super35',
+    aspect: '16:9',
+    fps: 24,
+    focusMode: 'auto',
+    focusDistance: 3,
+    guides: { thirds: true, safe: false, center: false },
+  };
+}
+
+/** Eye height, 4 m back from the origin, looking toward it. */
+export function defaultCamera(): CameraRig {
+  return { transform: { position: [0, 1.6, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, lens: defaultLens() };
 }
 
 export const DEFAULT_SPEED: Record<ActorClip, number> = { idle: 0, walk: 1.3, run: 3.5, sit: 0 };

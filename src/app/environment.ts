@@ -7,13 +7,14 @@ import {
   HemisphereLight,
   Mesh,
   MeshStandardMaterial,
+  type Object3D,
 } from 'three';
 
 /**
  * Stage furniture that is not part of the user's scene model: floor, grid and default lighting.
- * Tagged with userData.helper so export passes can exclude it.
+ * The floor and lights appear in shots; the grid and origin axes are editor-only.
  */
-export function buildEnvironment(): Group {
+export function buildEnvironment(): { group: Group; editorOnly: Object3D[] } {
   const env = new Group();
   env.name = 'Environment';
 
@@ -49,6 +50,7 @@ export function buildEnvironment(): Group {
   sun.name = 'Key';
   env.add(sun);
 
-  env.traverse((o) => (o.userData.helper = true));
-  return env;
+  const editorOnly = [major, minor, axes];
+  for (const o of editorOnly) o.userData.helper = true;
+  return { group: env, editorOnly };
 }

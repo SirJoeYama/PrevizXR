@@ -3,6 +3,7 @@ import { loadPolyLibrary, polyAssetRef, polyThumbUrl, searchPoly, type PolyEntry
 import type { Playback } from '../../app/Playback';
 import type { Spawnable } from '../../app/spawn';
 import type { Editor } from '../../model/Editor';
+import { ASPECT_IDS, FOCAL_PRESETS, FPS_OPTIONS, SENSORS, clampFocal, horizontalFovDeg, verticalFovDeg, type SensorId } from '../../camera/lens';
 import { ACTOR_CLIPS } from '../../model/scene';
 import { CanvasPanel, PANEL_COLORS } from './CanvasPanel';
 
@@ -11,9 +12,13 @@ export interface VRMenuHost {
   isPathMode(): boolean;
   setPathMode(on: boolean): void;
   snapSelected(): void;
+  isHoldingCamera(): boolean;
+  toggleHoldCamera(): void;
+  bringCamera(): void;
+  focusDistance(): number | null;
 }
 
-type Tab = Category | 'library';
+type Tab = Category | 'library' | 'camera';
 
 const W = 768;
 const H = 1280;
@@ -39,6 +44,7 @@ export class VRMenu extends CanvasPanel {
   private library: PolyEntry[] | null = null;
   private libraryError = '';
   private readonly images = new Map<string, HTMLImageElement>();
+  private shownFocus: number | null | undefined;
 
   constructor(
     private readonly editor: Editor,
@@ -51,6 +57,19 @@ export class VRMenu extends CanvasPanel {
     playback.onChange(() => this.invalidate());
   }
 
+  override update(): void {
+    if (this.tab === 'camera') {
+      // Autofocus changes without model edits: redraw when the readout would change.
+      const f = this.host.focusDistance();
+      const shown = f === null ? null : Math.round(f * 100);
+      if (shown !== this.shownFocus) {
+        this.shownFocus = shown;
+        this.invalidate();
+      }
+    }
+    super.update();
+  }
+
   protected draw(): void {
     const c = this.ctx;
     c.fillStyle = PANEL_COLORS.bg;
@@ -61,7 +80,7 @@ export class VRMenu extends CanvasPanel {
     this.text('PrevizXR', PAD, 40, { size: 30, weight: 700, color: PANEL_COLORS.active });
     this.text(this.editor.doc.name, W - PAD, 40, { size: 22, color: PANEL_COLORS.muted, align: 'right', maxWidth: 420 });
 
-    const tabs: Array<{ id: Tab; label: string }> = [...CATEGORIES, { id: 'library', label: 'Library' }];
+    const tabs: Array<{ id: Tab; label: string }> = [{ id: 'camera', label: 'Camera' }, ...CATEGORIES, { id: 'library', label: 'Library' }];
     const tabW = (W - PAD * 2 - 8 * 4) / 5;
     tabs.forEach((t, i) => {
       const x = PAD + (i % 5) * (tabW + 8);
@@ -70,8 +89,12 @@ export class VRMenu extends CanvasPanel {
     });
 
     let gridTop = 208;
-    if (this.tab === 'library') gridTop = this.drawLibraryPresets(gridTop);
-    this.drawGrid(this.tiles(), gridTop, 836 - gridTop);
+    if (this.tab === 'camera') {
+      this.drawCamera(gridTop);
+    } else {
+      if (this.tab === 'library') gridTop = this.drawLibraryPresets(gridTop);
+      this.drawGrid(this.tiles(), gridTop, 836 - gridTop);
+    }
     this.drawSelection(900);
   }
 
@@ -173,6 +196,68 @@ export class VRMenu extends CanvasPanel {
     this.region({ id, x, y, w, h, onClick: () => this.host.spawn(t.item) });
   }
 
+  private drawCamera(top: number): void {
+    const lens = this.editor.doc.camera.lens;
+    const set = (mutate: (l: typeof lens) => void) => this.editor.updateLens(mutate);
+    const inner = W - PAD * 2;
+    const v = verticalFovDeg(lens.focalLength, lens.sensor, lens.aspect);
+    const hz = horizontalFovDeg(lens.focalLength, lens.sensor, lens.aspect);
+    this.text(`${lens.focalLength.toFixed(lens.focalLength % 1 ? 1 : 0)} mm`, PAD, top + 20, { size: 34, weight: 700 });
+    this.text(`${hz.toFixed(1)}° × ${v.toFixed(1)}°`, W - PAD, top + 20, { size: 22, color: PANEL_COLORS.muted, align: 'right' });
+
+    let y = top + 50;
+    const bw4 = (inner - 24) / 4;
+    FOCAL_PRESETS.forEach((f, i) => {
+      this.button(`focal-${f}`, `${f}`, PAD + (i % 4) * (bw4 + 8), y + Math.floor(i / 4) * 56, bw4, 48, () => set((l) => (l.focalLength = f)), { active: lens.focalLength === f });
+    });
+    y += 112;
+    (
+      [
+        ['−5', -5],
+        ['−1', -1],
+        ['+1', 1],
+        ['+5', 5],
+      ] as const
+    ).forEach(([label, d], i) => {
+      this.button(`fstep-${i}`, label, PAD + i * (bw4 + 8), y, bw4, 48, () => set((l) => (l.focalLength = clampFocal(Math.round(l.focalLength) + d))));
+    });
+    y += 64;
+
+    const row = (label: string, draw: (x: number, w: number) => void) => {
+      this.text(label, PAD, y + 24, { size: 22, color: PANEL_COLORS.muted });
+      draw(PAD + 120, inner - 120);
+      y += 58;
+    };
+    const options = <T,>(id: string, values: readonly T[], current: T, labelOf: (v: T) => string, onPick: (v: T) => void) => (x: number, w: number) => {
+      const bw = (w - 8 * (values.length - 1)) / values.length;
+      values.forEach((val, i) => this.button(`${id}-${i}`, labelOf(val), x + i * (bw + 8), y, bw, 48, () => onPick(val), { active: val === current, size: 22 }));
+    };
+    row('Sensor', options<SensorId>('sensor', ['super35', 'fullframe'], lens.sensor, (s) => SENSORS[s].label, (s) => set((l) => (l.sensor = s))));
+    row('Aspect', options('aspect', ASPECT_IDS, lens.aspect, (a) => a, (a) => set((l) => (l.aspect = a))));
+    row('FPS', options('fps', FPS_OPTIONS, lens.fps, (f) => String(f), (f) => set((l) => (l.fps = f))));
+    row('Guides', (x, w) => {
+      const bw = (w - 16) / 3;
+      (['thirds', 'safe', 'center'] as const).forEach((g, i) =>
+        this.button(`guide-${g}`, g[0].toUpperCase() + g.slice(1), x + i * (bw + 8), y, bw, 48, () => set((l) => (l.guides[g] = !l.guides[g])), { active: lens.guides[g], size: 22 }),
+      );
+    });
+    const focus = this.host.focusDistance();
+    row('Focus', (x, w) => {
+      const bw = (w - 8) / 2;
+      this.button('af', lens.focusMode === 'auto' ? 'Auto' : 'Manual', x, y, bw, 48, () => set((l) => {
+        l.focusMode = l.focusMode === 'auto' ? 'manual' : 'auto';
+        if (l.focusMode === 'manual' && focus !== null) l.focusDistance = Math.round(focus * 100) / 100;
+      }), { active: lens.focusMode === 'auto', size: 22 });
+      this.text(focus === null ? '∞' : `${focus.toFixed(2)} m`, x + bw + 8 + bw / 2, y + 24, { size: 24, align: 'center' });
+    });
+    const bw3 = (inner - 16) / 3;
+    const holding = this.host.isHoldingCamera();
+    this.button('hold', holding ? 'Let go' : 'Hold camera', PAD, y, bw3, 52, () => this.host.toggleHoldCamera(), { active: holding, size: 22 });
+    this.button('bring', 'Bring here', PAD + bw3 + 8, y, bw3, 52, () => this.host.bringCamera(), { disabled: holding, size: 22 });
+    this.button('selcam', 'Select', PAD + (bw3 + 8) * 2, y, bw3, 52, () => this.editor.select('camera'), { active: this.editor.cameraSelected, size: 22 });
+    this.text('Right stick click: hold/let go · stick up/down: zoom', W / 2, y + 76, { size: 18, color: PANEL_COLORS.muted, align: 'center' });
+  }
+
   private drawSelection(top: number): void {
     const c = this.ctx;
     c.fillStyle = '#2a2f3a';
@@ -202,6 +287,9 @@ export class VRMenu extends CanvasPanel {
         this.button('clearpath', `Clear (${wp})`, PAD + bw + 8, row(2) + 50, bw, 50, () => this.editor.update(sel.id, (o) => (o.actor!.waypoints = [])), { disabled: wp === 0 });
         this.button('loop', sel.actor.loop ? 'Loop: on' : 'Loop: off', PAD + (bw + 8) * 2, row(2) + 50, bw, 50, () => this.editor.update(sel.id, (o) => (o.actor!.loop = !o.actor!.loop)), { active: sel.actor.loop });
       }
+    } else if (this.editor.cameraSelected) {
+      this.text('Camera selected', PAD, row(0) + 22, { size: 26, weight: 600 });
+      this.text('Grip to move it, or hold it with a right stick click.', PAD, row(0) + 70, { size: 22, color: PANEL_COLORS.muted });
     } else {
       this.text('Point and pull the trigger to select. Squeeze grip to grab.', W / 2, row(0) + 40, { size: 22, color: PANEL_COLORS.muted, align: 'center', maxWidth: W - PAD * 2 });
     }
