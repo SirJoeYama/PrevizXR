@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run lint && npm run typecheck && npm run test"
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "catalog": "node scripts/build-poly-catalog.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
