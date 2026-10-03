@@ -46,6 +46,8 @@ interface Tile {
 /** Controller-attached spawn and edit menu for VR (the desktop equivalent is the sidebar). */
 export class VRMenu extends CanvasPanel {
   private tab: Tab = 'actors';
+  /** Category shown when returning to Add. */
+  private lastAddTab: Tab = 'actors';
   private page = 0;
   private libraryQuery = LIBRARY_PRESETS[0];
   private library: PolyEntry[] | null = null;
@@ -103,23 +105,33 @@ export class VRMenu extends CanvasPanel {
     this.text(`${fps} fps`, W - PAD, 40, { size: 22, align: 'right', color: fps > 0 && fps < 66 ? PANEL_COLORS.danger : PANEL_COLORS.muted });
     this.text(this.editor.doc.name, W - PAD - 110, 40, { size: 22, color: PANEL_COLORS.muted, align: 'right', maxWidth: 380 });
 
-    const tabs: Array<{ id: Tab; label: string }> = [
+    // Primary tabs; "Add" opens the object categories as a second row.
+    const isAdd = !(['camera', 'takes', 'settings'] as Tab[]).includes(this.tab);
+    const primary: Array<{ id: Tab; label: string }> = [
+      { id: this.lastAddTab, label: 'Add' },
       { id: 'camera', label: 'Camera' },
       { id: 'takes', label: 'Takes' },
-      ...CATEGORIES,
-      { id: 'library', label: 'Library' },
-      { id: 'images', label: 'Images' },
       { id: 'settings', label: 'Settings' },
     ];
-    const perRow = 7;
-    const tabW = (W - PAD * 2 - 8 * (perRow - 1)) / perRow;
-    tabs.forEach((t, i) => {
-      const x = PAD + (i % perRow) * (tabW + 8);
-      const y = 76 + Math.floor(i / perRow) * 60;
-      this.button(`tab-${t.id}`, t.label, x, y, tabW, 52, () => this.setTab(t.id), { active: this.tab === t.id, size: 18 });
+    const pw = (W - PAD * 2 - 8 * (primary.length - 1)) / primary.length;
+    primary.forEach((t, i) => {
+      const active = i === 0 ? isAdd : this.tab === t.id;
+      this.button(`tab-${i === 0 ? 'add' : t.id}`, t.label, PAD + i * (pw + 8), 74, pw, 58, () => this.setTab(t.id), { active, size: 24 });
     });
 
-    let gridTop = 208;
+    let gridTop = 150;
+    if (isAdd) {
+      const cats: Array<{ id: Tab; label: string }> = [...CATEGORIES, { id: 'library', label: 'Library' }, { id: 'images', label: 'Images' }];
+      const perRow = 5;
+      const cw = (W - PAD * 2 - 8 * (perRow - 1)) / perRow;
+      cats.forEach((t, i) => {
+        const x = PAD + (i % perRow) * (cw + 8);
+        const y = 146 + Math.floor(i / perRow) * 50;
+        this.button(`cat-${t.id}`, t.label, x, y, cw, 42, () => this.setTab(t.id), { active: this.tab === t.id, size: 19 });
+      });
+      gridTop = 250;
+    }
+
     if (this.tab === 'camera') {
       this.drawCamera(gridTop);
     } else if (this.tab === 'takes') {
@@ -135,6 +147,7 @@ export class VRMenu extends CanvasPanel {
 
   private setTab(tab: Tab): void {
     this.tab = tab;
+    if (!(['camera', 'takes', 'settings'] as Tab[]).includes(tab)) this.lastAddTab = tab;
     this.page = 0;
     if (tab === 'library') void this.ensureLibrary();
   }

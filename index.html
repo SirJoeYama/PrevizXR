@@ -4,14 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="PrevizXR: block out scenes in VR, record virtual camera takes, export frame-synced passes for AI video." />
+    <meta name="theme-color" content="#101217" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>PrevizXR</title>
   </head>
   <body>
     <a class="skip-link" href="#viewport">Skip to the 3D viewport</a>
-    <div id="app">
-      <aside id="sidebar" aria-label="PrevizXR controls"></aside>
+    <div id="app" data-left="open" data-right="open">
+      <header id="topbar"></header>
+      <aside id="left-panel" aria-label="Add to scene"></aside>
       <main id="viewport" aria-label="3D viewport" tabindex="-1"></main>
+      <aside id="right-panel" aria-label="Properties"></aside>
     </div>
     <script type="module" src="./src/main.ts"></script>
   </body>

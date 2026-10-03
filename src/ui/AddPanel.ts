@@ -51,7 +51,7 @@ export class AddPanel {
       'div',
       { class: 'stack', hidden: true },
       el('button', { class: 'btn', type: 'button', text: 'Import images…', onclick: () => this.fileInput.click() }),
-      el('p', { class: 'hint', text: 'JPG, PNG or WebP. You can also drop images on the 3D view or paste one (Ctrl+V). They appear as floating reference planes, hidden from renders.' }),
+      el('p', { class: 'hint', text: 'Or drop images on the view, or paste (Ctrl+V). They float as reference planes, hidden from renders.' }),
       this.fileInput,
     );
     this.root = section('Add', 'sb-add', this.tabs, this.search, this.imageTools, this.grid, this.note);

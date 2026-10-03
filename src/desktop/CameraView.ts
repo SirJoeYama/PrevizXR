@@ -263,12 +263,6 @@ export class CameraView {
     if (!rect) return;
     ctx.scale(dpr, dpr);
     drawGuides(ctx, rect.x, rect.y, rect.w, rect.h, { lens: this.editor.doc.camera.lens, focus: this.vcam.focusDistance, focal: this.vcam.focalLength, status: this.vcam.status() });
-    if (this.throughCamera) {
-      ctx.font = '600 12px system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.textAlign = 'center';
-      ctx.fillText('Camera view · drag to aim · WASD/QE to move · wheel to zoom · V or Esc to exit', W / 2, 18);
-    }
   }
 
   private clearOverlay(): void {

@@ -1,16 +1,19 @@
 import { Euler, Quaternion } from 'three';
-import type { DesktopEditor, GizmoMode } from '../desktop/DesktopEditor';
-import { snapToFloor } from '../interaction/ops';
+import type { DesktopEditor } from '../desktop/DesktopEditor';
 import type { Editor } from '../model/Editor';
 import { ACTOR_CLIPS, CAMERA_ID, DEFAULT_SPEED, type SceneObject, type Transform } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { el, section, setValue } from './dom';
+import { icon } from './icons';
 
 const DEG = 180 / Math.PI;
 const euler = new Euler(0, 0, 0, 'YXZ');
 const quat = new Quaternion();
 
-/** Properties of the selected object: transform, actor clip/path, light settings, actions. */
+/**
+ * Properties panel. 'object' mode edits the selected object (transform, actor clip/path, light, render
+ * visibility); 'camera' mode always shows the camera's position and orientation.
+ */
 export class InspectorPanel {
   readonly root: HTMLElement;
   private readonly body: HTMLElement;
@@ -19,27 +22,31 @@ export class InspectorPanel {
 
   constructor(
     private readonly editor: Editor,
-    private readonly sync: SceneSync,
+    _sync: SceneSync,
     private readonly desktop: DesktopEditor,
+    private readonly mode: 'object' | 'camera' = 'object',
   ) {
     this.body = el('div', { class: 'stack' });
-    this.root = section('Selected', 'sb-inspector', this.body);
+    this.root = mode === 'camera' ? section('Position', 'rp-camera-position', this.body) : el('div', { class: 'group' }, this.body);
     editor.subscribe(() => this.render());
     desktop.onChange(() => this.render(true));
     this.render();
   }
 
   private render(force = false): void {
-    if (this.editor.cameraSelected) {
+    if (this.mode === 'camera') {
       if (this.renderedId !== CAMERA_ID || force) this.buildCamera();
       this.refresh?.();
       return;
     }
     const obj = this.editor.selected;
     if (!obj) {
+      if (this.renderedId === null && !force && this.body.childElementCount) return;
       this.renderedId = null;
       this.refresh = null;
-      this.body.replaceChildren(el('p', { class: 'hint', text: 'Click an object to select it, or add one above.' }));
+      this.body.replaceChildren(
+        el('p', { class: 'empty-hint', text: this.editor.cameraSelected ? 'The camera is selected. Its settings are in the Camera tab.' : 'Select an object in the view or the list above to edit it.' }),
+      );
       return;
     }
     // Rebuild the form only when the selection changes; otherwise update values in place so typing isn't interrupted.
@@ -54,7 +61,7 @@ export class InspectorPanel {
     const updaters: Array<() => void> = [];
 
     const name = el('input', {
-      class: 'input',
+      class: 'input name-input',
       type: 'text',
       'aria-label': 'Object name',
       onchange: () => {
@@ -67,48 +74,27 @@ export class InspectorPanel {
     const swatch = el('span', { class: 'swatch', title: 'ID color (used by the color_id pass)' });
     updaters.push(() => (swatch.style.background = current()?.color ?? ''));
 
-    const modes: Array<[GizmoMode, string, string]> = [
-      ['translate', 'Move', '1'],
-      ['rotate', 'Rotate', '2'],
-      ['scale', 'Scale', '3'],
-    ];
-    const modeRow = el(
-      'div',
-      { class: 'seg', role: 'group', 'aria-label': 'Gizmo mode' },
-      ...modes.map(([m, label, key]) =>
-        el('button', {
-          type: 'button',
-          class: 'seg-btn',
-          text: label,
-          title: `${label} (${key})`,
-          'aria-pressed': String(this.desktop.mode === m),
-          onclick: () => this.desktop.setMode(m),
-        }),
-      ),
-    );
-
     const fields = this.transformFields(id, updaters);
-
-    const actions = el(
-      'div',
-      { class: 'row three' },
-      el('button', { class: 'btn', type: 'button', text: 'To floor', title: 'Snap to floor (G)', onclick: () => snapToFloor(this.editor, this.sync, id) }),
-      el('button', { class: 'btn', type: 'button', text: 'Duplicate', title: 'Duplicate (Ctrl+D)', onclick: () => this.editor.duplicate(id) }),
-      el('button', { class: 'btn danger', type: 'button', text: 'Delete', title: 'Delete (Del)', onclick: () => this.editor.remove(id) }),
-    );
+    const action = (label: string, iconName: 'copy' | 'trash', onclick: () => void, danger = false) =>
+      el('button', { class: `icon-btn${danger ? ' danger' : ''}`, type: 'button', title: label, 'aria-label': label, onclick }, icon(iconName, 16));
 
     const hidden = el('input', { type: 'checkbox', onchange: () => this.editor.update(id, (o) => (o.hiddenInRenders = hidden.checked || undefined)) });
     updaters.push(() => (hidden.checked = !!current()?.hiddenInRenders));
-    const hiddenRow = el('label', { class: 'check', title: 'Reference only: not shown on the camera monitor or in rendered passes' }, hidden, ' Hide in renders (reference only)');
+    const hiddenRow = el('label', { class: 'check', title: 'Reference only: not shown on the camera monitor or in rendered passes' }, hidden, ' Hide in renders');
 
     const parts: Array<HTMLElement | null> = [
-      el('div', { class: 'name-row' }, swatch, name),
-      modeRow,
+      el(
+        'div',
+        { class: 'name-row' },
+        swatch,
+        name,
+        action('Duplicate (Ctrl+D)', 'copy', () => this.editor.duplicate(id)),
+        action('Delete (Del)', 'trash', () => this.editor.remove(id), true),
+      ),
       fields,
       obj.actor ? this.actorFields(id, updaters) : null,
       obj.light ? this.lightFields(id, updaters) : null,
       hiddenRow,
-      actions,
       obj.asset.source === 'poly' ? el('p', { class: 'hint', text: `“${obj.asset.title}” by ${obj.asset.creator}, ${obj.asset.licence}` }) : null,
     ];
     this.body.replaceChildren(...parts.filter((p): p is HTMLElement => p !== null));
@@ -196,15 +182,14 @@ export class InspectorPanel {
       this.editor.setTransform(CAMERA_ID, t);
     };
     this.body.replaceChildren(
-      el('div', { class: 'name-row' }, el('span', { class: 'swatch cam', 'aria-hidden': 'true' }), el('strong', { text: 'Camera' })),
       this.transformFields(CAMERA_ID, updaters, true),
       el(
         'div',
         { class: 'row' },
         el('button', { class: 'btn', type: 'button', text: 'Level', title: 'Remove tilt and roll', onclick: level }),
         el('button', { class: 'btn', type: 'button', text: 'Eye height', title: 'Lens at 1.6 m', onclick: eye }),
+        el('button', { class: 'btn', type: 'button', text: 'Select', title: 'Select the camera to move it with the gizmo (C)', onclick: () => this.editor.select(CAMERA_ID) }),
       ),
-      el('p', { class: 'hint', text: 'Lens and format settings are in the Camera panel. Press V to look through it.' }),
     );
     this.refresh = () => updaters.forEach((u) => u());
   }

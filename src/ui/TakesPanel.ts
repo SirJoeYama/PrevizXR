@@ -36,7 +36,7 @@ export class TakesPanel {
         this.status,
         el('button', { class: 'btn', type: 'button', text: 'Render…', title: 'Render passes to video', onclick: () => onRender(this.selectedId ?? undefined) }),
       ),
-      el('p', { class: 'hint', text: 'Recording runs the actors from the start and captures the camera at the lens fps. Fly it in camera view (V), or hold it in VR.' }),
+      el('p', { class: 'hint', text: 'Actors play from the start while the camera is captured at the lens frame rate.' }),
       this.list,
       this.details,
       el(
@@ -187,7 +187,7 @@ export class CameraPathPanel {
     this.root = section(
       'Camera path',
       'sb-path',
-      el('p', { class: 'hint', text: 'A smooth dolly/crane move through keyframes. Place the camera (gizmo or camera view), then add a key; repeat.' }),
+      el('p', { class: 'hint', text: 'A smooth dolly/crane move: place the camera, add a key, repeat.' }),
       el('div', { class: 'row' }, el('button', { class: 'btn', type: 'button', text: '+ Key from camera', title: 'Add a keyframe at the camera (K)', onclick: () => this.addKey() })),
       this.list,
       el('div', { class: 'row' }, this.previewBtn, this.saveBtn),

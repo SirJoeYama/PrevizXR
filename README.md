@@ -79,7 +79,12 @@ Open http://localhost:5173.
 
 To render, select a take in the **Takes** panel and click **Render…**. Choose resolution, format and passes, set the depth range (or use **Auto**, which fits near/far to everything the camera sees during the take), then download the files.
 
-Add objects from the **Add** panel in the sidebar: they appear on the floor at the centre of the view, facing you.
+The desktop layout:
+
+- **Top bar:** scene name (click to rename) with its save status and ⋯ menu (new, open, import, export), undo/redo, **Preview**, **Record**, **Render**, help (`?`), VR settings and **Enter VR**. The buttons at each end show or hide the side panels.
+- **Left (Add):** actors, blockout shapes, models, lights, the Poly library and your images. Click one to place it on the floor at the centre of the view, facing you.
+- **Right (properties):** **Object** has a list of everything in the scene plus the selected object's settings, **Camera** has position, lens and the keyframed path, and **Takes** has recordings and Render. Selecting the camera or an object switches tabs for you.
+- **Viewport toolbar:** move / rotate / scale, snap to floor, focus, look through the camera, and the camera monitor. A status line shows object count, FPS and credits.
 
 **Reference images:** in **Add → Images**, click **Import images…**, drop image files on the 3D view, or paste an image (`Ctrl+V`). Each image becomes a 1 m tall picture plane floating in front of the view; scale it with the gizmo or the inspector. Large photos are downscaled to 2048 px so they stay light on the Quest.
 
@@ -122,14 +127,14 @@ Use the menu's Camera tab to hold the camera, zoom (±) and bring it to you. Wal
 
 ### Settings and accessibility
 
-- **Left-handed mode** (VR menu → Settings, or the sidebar's *VR settings*): the left hand points, picks and holds the camera, and the menu moves to the right controller (with it the X/Y and A/B roles swap hands).
+- **Left-handed mode** (VR menu → Settings, or the gear in the top bar): the left hand points, picks and holds the camera, and the menu moves to the right controller (with it the X/Y and A/B roles swap hands).
 - **Menu size:** small, medium or large.
 - **Controller vibration** confirms hovering, clicking, grabbing and recording; it can be turned off.
-- **Desktop:** everything in the sidebar is reachable by keyboard, with visible focus. Category tabs follow the WAI-ARIA tabs pattern (arrow keys, Home/End). A *Skip to the 3D viewport* link comes first. Screen readers hear added and removed objects, undo/redo, gizmo and path modes, and recording state through a polite live region. Dialogs trap focus, and Esc closes them (except while rendering, where Cancel is explicit).
+- **Desktop:** every control is reachable by keyboard, with visible focus. Category tabs follow the WAI-ARIA tabs pattern (arrow keys, Home/End). A *Skip to the 3D viewport* link comes first. Screen readers hear added and removed objects, undo/redo, gizmo and path modes, and recording state through a polite live region. Dialogs trap focus, and Esc closes them (except while rendering, where Cancel is explicit).
 
-The menu's **Images** tab places the images you've imported, centred at eye level in front of you. To get images onto the Quest, import them in the Quest browser before entering VR (Add → Images → Import images… opens the Quest's file picker), or open a scene exported from desktop, which carries its images. Browsers can't show a file picker during an immersive session.
+The VR menu has four tabs: **Add** (with the categories, Library and Images as a second row), **Camera**, **Takes** and **Settings**. Its **Images** category places the images you've imported, centred at eye level in front of you. To get images onto the Quest, import them in the Quest browser before entering VR (Add → Images → Import images… opens the Quest's file picker), or open a scene exported from desktop, which carries its images. Browsers can't show a file picker during an immersive session.
 
-The menu's **Library** tab has one-tap searches (chair, car, tree, …) because there's no keyboard in VR. Use the desktop sidebar to search the full library by name.
+The menu's **Library** tab has one-tap searches (chair, car, tree, …) because there's no keyboard in VR. Search the full library by name on desktop (Add → Library).
 
 ## Performance on Quest
 

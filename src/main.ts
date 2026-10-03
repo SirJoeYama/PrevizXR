@@ -1,14 +1,13 @@
 import './styles.css';
 import { App } from './app/App';
 import { Studio } from './app/Studio';
-import { Sidebar } from './ui/Sidebar';
+import { Layout } from './ui/Layout';
 
 const viewport = document.getElementById('viewport')!;
-const sidebarEl = document.getElementById('sidebar')!;
 
 const app = new App(viewport);
 const studio = new Studio(app);
-new Sidebar(sidebarEl, studio);
+new Layout(studio);
 app.start();
 void studio.project.restore();
 

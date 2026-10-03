@@ -2,7 +2,7 @@ import { ASPECT_IDS, FOCAL_MAX, FOCAL_MIN, FOCAL_PRESETS, FPS_OPTIONS, SENSORS, 
 import type { VirtualCamera } from '../camera/VirtualCamera';
 import type { CameraView } from '../desktop/CameraView';
 import type { Editor } from '../model/Editor';
-import { CAMERA_ID, type LensSettings } from '../model/scene';
+import type { LensSettings } from '../model/scene';
 import { el, section, setValue } from './dom';
 
 /** Virtual camera: views, lens, format and guides. */
@@ -19,12 +19,9 @@ export class CameraPanel {
     const set = (mutate: (l: LensSettings) => void) => editor.updateLens(mutate);
 
     const viewBtn = el('button', { class: 'btn', type: 'button', title: 'Look through the camera (V)', onclick: () => view.setThroughCamera(!view.throughCamera) });
-    const pipBtn = el('button', { class: 'btn', type: 'button', title: 'Monitor in the corner of the viewport (M)', onclick: () => view.setPip(!view.pip) });
     this.refreshers.push(() => {
-      viewBtn.textContent = view.throughCamera ? 'Exit camera view' : 'Camera view';
+      viewBtn.textContent = view.throughCamera ? 'Exit camera view' : 'Look through';
       viewBtn.setAttribute('aria-pressed', String(view.throughCamera));
-      pipBtn.textContent = 'Monitor';
-      pipBtn.setAttribute('aria-pressed', String(view.pip));
     });
 
     // Focal length: slider + number + presets
@@ -131,19 +128,13 @@ export class CameraPanel {
     };
 
     this.root = section(
-      'Camera',
-      'sb-camera',
+      'Lens',
+      'rp-camera-lens',
       el(
         'div',
         { class: 'row' },
-        el('button', { class: 'btn', type: 'button', text: 'Select', title: 'Select the camera (C)', onclick: () => editor.select(CAMERA_ID) }),
         viewBtn,
-      ),
-      el(
-        'div',
-        { class: 'row' },
-        pipBtn,
-        el('button', { class: 'btn', type: 'button', text: 'Match view', title: 'Move the camera to the current viewport position', onclick: () => view.matchView() }),
+        el('button', { class: 'btn', type: 'button', text: 'Match view', title: 'Move the camera to where the viewport is looking from', onclick: () => view.matchView() }),
       ),
       el('div', { class: 'focal-row' }, el('span', { class: 'field-label', text: 'Focal mm' }), slider, focal),
       presets,
