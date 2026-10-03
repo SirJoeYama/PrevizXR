@@ -4,7 +4,7 @@ import { parseScene, serializeScene } from '../model/serialize';
 import { deleteScene, listScenes, loadScene, saveScene, type SceneSummary } from '../storage/sceneStore';
 import { deleteTakesOfScene } from '../storage/takeStore';
 import { embedImages, restoreEmbeddedImages } from '../assets/imageLibrary';
-import { downloadText, slug } from './download';
+import { downloadText, fileTimestamp, slug } from './download';
 
 const LAST_SCENE_KEY = 'previzxr.lastScene';
 const AUTOSAVE_DELAY = 800;
@@ -88,7 +88,7 @@ export class Project {
     const text = Object.keys(embeddedImages).length
       ? JSON.stringify({ ...JSON.parse(serializeScene(doc)), embeddedImages }, null, 2)
       : serializeScene(doc);
-    downloadText(`${slug(doc.name) || 'scene'}.previz.json`, text);
+    downloadText(`${slug(doc.name) || 'scene'}_${fileTimestamp()}.previz.json`, text);
   }
 
   async flush(): Promise<void> {
