@@ -12,8 +12,8 @@ export function slug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-/** Local date and time for file names: "2026-10-03_14-05" (sorts chronologically, no ":" for Windows). */
+/** Local date and time for file names: "2026-10-03_14-05-09" (sorts chronologically, no ":" for Windows). */
 export function fileTimestamp(date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}_${p(date.getHours())}-${p(date.getMinutes())}`;
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}_${p(date.getHours())}-${p(date.getMinutes())}-${p(date.getSeconds())}`;
 }
