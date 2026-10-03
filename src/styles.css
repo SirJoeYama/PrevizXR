@@ -130,7 +130,7 @@ kbd {
 }
 .tab[aria-selected='true'] { background: var(--accent); border-color: var(--accent); color: #1a1205; font-weight: 600; }
 
-.tile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; max-height: 330px; overflow-y: auto; }
+.tile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; max-height: 330px; overflow-y: auto; }
 .tile { position: relative; }
 .tile-btn {
   appearance: none;
