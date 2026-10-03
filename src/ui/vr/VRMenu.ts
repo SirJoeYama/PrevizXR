@@ -10,7 +10,8 @@ import { formatTime } from '../../camera/guides';
 import type { Spawnable } from '../../app/spawn';
 import type { Editor } from '../../model/Editor';
 import { ASPECT_IDS, FOCAL_PRESETS, FPS_OPTIONS, SENSORS, clampFocal, horizontalFovDeg, verticalFovDeg, type SensorId } from '../../camera/lens';
-import { ACTOR_CLIPS, CAMERA_ID, editPath, pathOf, type CameraKey, type SceneObject } from '../../model/scene';
+import { hasEditedHandles, smoothPath } from '../../model/pathEdit';
+import { ACTOR_CLIPS, CAMERA_ID, clearWaypoints, editPath, pathOf, type CameraKey, type SceneObject } from '../../model/scene';
 import { CanvasPanel, PANEL_COLORS } from './CanvasPanel';
 
 export interface VRMenuHost {
@@ -308,7 +309,7 @@ export class VRMenu extends CanvasPanel {
     this.text(`${hz.toFixed(1)}° × ${v.toFixed(1)}°`, W - PAD, top + 20, { size: 22, color: PANEL_COLORS.muted, align: 'right' });
 
     let y = top + 50;
-    const bw4 = (inner - 24) / 4;
+    const bw4 = (inner - 32) / 5;
     FOCAL_PRESETS.forEach((f, i) => {
       this.button(`focal-${f}`, `${f}`, PAD + (i % 4) * (bw4 + 8), y + Math.floor(i / 4) * 56, bw4, 48, () => set((l) => (l.focalLength = f)), { active: lens.focalLength === f });
     });
@@ -617,7 +618,7 @@ export class VRMenu extends CanvasPanel {
     this.wrapText(
       drawing
         ? 'The camera follows your hand: frame the shot on its monitor and pull the trigger to drop a key. Stick zooms.'
-        : 'Draw path puts the camera in your hand; each trigger pull drops a key. Grab a numbered marker to move it.',
+        : 'Draw path puts the camera in your hand; each trigger pull drops a key. Grab a numbered marker or a curve handle to reshape.',
       PAD,
       y + 10,
       inner,
@@ -684,6 +685,7 @@ export class VRMenu extends CanvasPanel {
     this.button('ksave', 'Save take', PAD + bw4 + 8, by, bw4, 56, () => void this.takes.bakePath(true).then(() => this.setTab('takes')), { disabled: !canBake || busy, size: 22 });
     this.button('kslow', 'Slower', PAD + (bw4 + 8) * 2, by, bw4, 56, () => this.scaleTimes(1.25), { disabled: busy || keys.length < 2, size: 22 });
     this.button('kfast', 'Faster', PAD + (bw4 + 8) * 3, by, bw4, 56, () => this.scaleTimes(0.8), { disabled: busy || keys.length < 2, size: 22 });
+    this.button('ksmooth', 'Smooth', PAD + (bw4 + 8) * 4, by, bw4, 56, () => this.editor.edit((d) => smoothPath(d, CAMERA_ID)), { disabled: busy || !hasEditedHandles(this.editor.doc, CAMERA_ID), size: 22 });
   }
 
   /** Shifts keyframe i by `delta` seconds (never below 0), keeping it picked after re-sorting. */
@@ -772,18 +774,25 @@ export class VRMenu extends CanvasPanel {
     const drawing = this.host.isPathMode();
     const h = 50;
     let x = PAD;
-    this.button('path', drawing ? 'Done' : 'Draw path', x, y, 170, h, () => this.host.setPathMode(!drawing), { active: drawing, size: 22 });
-    x += 178;
-    this.button('clearpath', `Clear (${wp})`, x, y, 130, h, () => this.editor.update(sel.id, (o) => (editPath(o).waypoints = [])), { disabled: wp === 0, size: 22 });
-    x += 138;
+    this.button('path', drawing ? 'Done' : 'Draw path', x, y, 142, h, () => this.host.setPathMode(!drawing), { active: drawing, size: 21 });
+    x += 148;
+    this.button('clearpath', `Clear (${wp})`, x, y, 112, h, () => this.editor.update(sel.id, (o) => clearWaypoints(o)), { disabled: wp === 0, size: 20 });
+    x += 118;
+    this.button('smoothpath', 'Smooth', x, y, 100, h, () => this.editor.edit((d) => smoothPath(d, sel.id)), { disabled: !hasEditedHandles(this.editor.doc, sel.id), size: 20 });
+    x += 106;
     const loop = !!path?.loop;
-    this.button('pathloop', loop ? 'Loop: on' : 'Loop: off', x, y, 130, h, () => this.editor.update(sel.id, (o) => (editPath(o).loop = !loop)), { active: loop, size: 22 });
-    x += 138;
+    this.button('pathloop', loop ? 'Loop: on' : 'Loop: off', x, y, 108, h, () => this.editor.update(sel.id, (o) => (editPath(o).loop = !loop)), { active: loop, size: 20 });
+    x += 114;
     const step = (d: number) => this.editor.update(sel.id, (o) => (editPath(o).speed = Math.max(0, Math.round((speed + d) * 100) / 100)));
     this.button('slower', '−', x, y, 54, h, () => step(-0.25), { disabled: speed <= 0, size: 26 });
-    this.text(`${speed.toFixed(2)} m/s`, (x + 62 + W - PAD - 54) / 2, y + h / 2, { size: 19, align: 'center', color: PANEL_COLORS.muted });
+    this.text(`${speed.toFixed(2)} m/s`, (x + 54 + W - PAD - 54) / 2, y + h / 2, { size: 17, align: 'center', color: PANEL_COLORS.muted });
     this.button('faster', '+', W - PAD - 54, y, 54, h, () => step(0.25), { size: 26 });
-    if (drawing) this.text('Point at the floor and pull the trigger to add waypoints.', W / 2, y + h + 22, { size: 19, color: PANEL_COLORS.muted, align: 'center' });
+    this.text(
+      drawing ? 'Point at the floor and pull the trigger to add waypoints.' : wp ? 'Grab a waypoint or a curve handle (small dot) to reshape the path.' : '',
+      W / 2,
+      y + h + 22,
+      { size: 19, color: PANEL_COLORS.muted, align: 'center' },
+    );
   }
 
   private image(url: string): HTMLImageElement {

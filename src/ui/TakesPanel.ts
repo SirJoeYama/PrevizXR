@@ -1,7 +1,8 @@
 import type { Takes } from '../app/Takes';
 import { formatTime } from '../camera/guides';
 import type { Editor } from '../model/Editor';
-import type { CameraKey } from '../model/scene';
+import { hasEditedHandles, smoothPath } from '../model/pathEdit';
+import { CAMERA_ID, type CameraKey } from '../model/scene';
 import { el, isTyping, section, setValue } from './dom';
 
 /** Record, play, smooth, rename, import and export takes (R records). */
@@ -174,6 +175,7 @@ export class CameraPathPanel {
   private readonly list: HTMLElement;
   private readonly previewBtn: HTMLButtonElement;
   private readonly saveBtn: HTMLButtonElement;
+  private readonly smoothBtn: HTMLButtonElement;
   private readonly error: HTMLElement;
 
   constructor(
@@ -184,13 +186,15 @@ export class CameraPathPanel {
     this.error = el('p', { class: 'hint error', role: 'alert', hidden: true });
     this.previewBtn = el('button', { class: 'btn', type: 'button', text: 'Preview', onclick: () => void this.bake(false) });
     this.saveBtn = el('button', { class: 'btn', type: 'button', text: 'Save as take', onclick: () => void this.bake(true) });
+    this.smoothBtn = el('button', { class: 'btn', type: 'button', text: 'Smooth curve', title: 'Reset every edited curve handle to a smooth curve', onclick: () => editor.edit((d) => smoothPath(d, CAMERA_ID)) });
     this.root = section(
       'Camera path',
       'sb-path',
       el('p', { class: 'hint', text: 'A smooth dolly/crane move: place the camera, add a key, repeat.' }),
       el('div', { class: 'row' }, el('button', { class: 'btn', type: 'button', text: '+ Key from camera', title: 'Add a keyframe at the camera (K)', onclick: () => this.addKey() })),
       this.list,
-      el('div', { class: 'row' }, this.previewBtn, this.saveBtn),
+      el('div', { class: 'row' }, this.previewBtn, this.saveBtn, this.smoothBtn),
+      el('p', { class: 'hint', text: 'Select the camera, then click a key marker or curve handle in the view to drag it.' }),
       this.error,
     );
     editor.subscribe((c) => c === 'doc' && this.render());
@@ -218,6 +222,7 @@ export class CameraPathPanel {
   private render(): void {
     const keys = this.keys;
     this.previewBtn.disabled = this.saveBtn.disabled = keys.length < 2 || this.takes.busy;
+    this.smoothBtn.disabled = !hasEditedHandles(this.editor.doc, CAMERA_ID);
     this.list.replaceChildren(
       ...(keys.length
         ? keys.map((k, i) => {

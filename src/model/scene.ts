@@ -52,6 +52,12 @@ export type AssetRef =
 export const ACTOR_CLIPS = ['idle', 'walk', 'run', 'sit'] as const;
 export type ActorClip = (typeof ACTOR_CLIPS)[number];
 
+/** Bézier handles of one path anchor, as offsets from the anchor (metres). */
+export interface PathHandle {
+  in: Vec3;
+  out: Vec3;
+}
+
 /** A path an object travels along during preview, takes and renders. */
 export interface MotionPath {
   /** Metres per second along the waypoint path. */
@@ -60,6 +66,11 @@ export interface MotionPath {
   waypoints: Vec3[];
   /** Return to the start and repeat, instead of stopping at the last waypoint. */
   loop: boolean;
+  /**
+   * Bézier handles per anchor, aligned with [start, ...waypoints]; a missing or null entry is a smooth
+   * auto handle. Absent on paths whose curve was never edited.
+   */
+  handles?: Array<PathHandle | null>;
 }
 
 /** Actors walk their path on the floor, facing the direction of travel. */
@@ -115,6 +126,8 @@ export interface CameraKey {
   position: Vec3;
   rotation: Quat;
   focalLength: number;
+  /** Bézier handles of the path at this key (offsets); absent = smooth auto handles. */
+  handles?: PathHandle;
 }
 
 /** The virtual camera. Looks down its local -Z axis, +Y up. */
@@ -187,6 +200,32 @@ export function pathOf(obj: Readonly<SceneObject>): Readonly<MotionPath> | undef
 /** Path settings to mutate (inside an Editor edit); created on first use for props and lights. */
 export function editPath(obj: SceneObject): MotionPath {
   return obj.actor ?? (obj.motion ??= { speed: DEFAULT_MOTION_SPEED, waypoints: [], loop: false });
+}
+
+/** Appends a waypoint (with an auto handle) at floor point (x, z); call inside an Editor edit. */
+export function addWaypoint(obj: SceneObject, x: number, z: number): void {
+  const path = editPath(obj);
+  trimHandles(path, path.waypoints.length + 1);
+  path.waypoints.push(waypointAt(obj, x, z));
+}
+
+/** Removes the last waypoint and its handle. */
+export function popWaypoint(obj: SceneObject): void {
+  const path = editPath(obj);
+  path.waypoints.pop();
+  trimHandles(path, path.waypoints.length + 1);
+}
+
+/** Removes every waypoint and handle. */
+export function clearWaypoints(obj: SceneObject): void {
+  const path = editPath(obj);
+  path.waypoints = [];
+  delete path.handles;
+}
+
+/** Keeps handles for the first `count` anchors only, so a new waypoint never inherits a stale handle. */
+function trimHandles(path: MotionPath, count: number): void {
+  if (path.handles && path.handles.length > count) path.handles.length = count;
 }
 
 /**

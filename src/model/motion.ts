@@ -1,3 +1,4 @@
+import { measure, resolveHandles, segments } from './bezier';
 import { multiplyQuat, quatFromYaw } from './math';
 import { pathOf, type ActorClip, type MotionPath, type Quat, type SceneObject, type Vec3 } from './scene';
 
@@ -8,62 +9,42 @@ export interface PathSample {
   heading: number | null;
   /** True while the actor is travelling (false before start, after the end, or with no path). */
   moving: boolean;
+  /** Heading at the start of the path (null without one). */
+  startHeading: number | null;
 }
 
 /**
- * Deterministic position of an object at time t (seconds) along the polyline start → waypoints.
- * Pure function of its inputs: playback, recording and rendering all evaluate the same pose for the same t.
+ * Deterministic position of an object at time t (seconds) along the Bézier path start → waypoints, at
+ * constant speed. Pure function of its inputs: playback, recording and rendering all evaluate the same
+ * pose for the same t.
  */
-export function samplePath(start: Vec3, actor: Readonly<MotionPath>, t: number): PathSample {
-  const points = [start, ...actor.waypoints];
-  if (points.length < 2 || actor.speed <= 0 || t <= 0) {
-    return { position: [...start], heading: points.length >= 2 ? yawBetween(points[0], points[1]) : null, moving: false };
-  }
-  if (actor.loop) points.push(start);
+export function samplePath(start: Vec3, path: Readonly<MotionPath>, t: number): PathSample {
+  const points = [start, ...path.waypoints];
+  if (points.length < 2) return { position: [...start], heading: null, moving: false, startHeading: null };
+  const curve = measure(segments(points, resolveHandles(points, path.handles, path.loop), path.loop));
+  const startHeading = headingOf(curve.at(0).tangent);
+  if (path.speed <= 0 || t <= 0 || curve.length === 0) return { position: [...start], heading: startHeading, moving: false, startHeading };
 
-  const lengths: number[] = [];
-  let total = 0;
-  for (let i = 0; i < points.length - 1; i++) {
-    const len = dist(points[i], points[i + 1]);
-    lengths.push(len);
-    total += len;
-  }
-  if (total === 0) return { position: [...start], heading: null, moving: false };
-
-  let d = t * actor.speed;
+  let d = t * path.speed;
   let moving = true;
-  if (actor.loop) {
-    d %= total;
-  } else if (d >= total) {
-    d = total;
+  if (path.loop) {
+    d %= curve.length;
+  } else if (d >= curve.length) {
+    d = curve.length;
     moving = false;
   }
+  const s = curve.at(d);
+  return { position: s.position, heading: headingOf(s.tangent) ?? startHeading, moving, startHeading };
+}
 
-  for (let i = 0; i < lengths.length; i++) {
-    const len = lengths[i];
-    if (len === 0) continue;
-    if (d <= len || i === lengths.length - 1) {
-      const a = points[i];
-      const b = points[i + 1];
-      const f = Math.min(d / len, 1);
-      return {
-        position: [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f],
-        heading: yawBetween(a, b),
-        moving,
-      };
-    }
-    d -= len;
-  }
-  return { position: [...start], heading: null, moving: false };
+/** Yaw of a direction of travel (null when it is vertical). */
+function headingOf(v: Vec3): number | null {
+  return Math.hypot(v[0], v[2]) < 1e-9 ? null : Math.atan2(v[0], v[2]);
 }
 
 /** Yaw that makes a model facing +Z look from a toward b. */
 export function yawBetween(a: Vec3, b: Vec3): number {
   return Math.atan2(b[0] - a[0], b[2] - a[2]);
-}
-
-function dist(a: Vec3, b: Vec3): number {
-  return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
 }
 
 /** Pose of one object at scene time t: what preview, recording and rendering all agree on. */
@@ -92,7 +73,7 @@ export function objectPoseAt(obj: SceneObject, t: number): ObjectPose {
     pose.p = s.position;
     moving = s.moving;
     if (s.heading !== null) {
-      pose.q = actor ? quatFromYaw(s.heading) : multiplyQuat(quatFromYaw(s.heading - yawBetween(position, path.waypoints[0])), rotation);
+      pose.q = actor ? quatFromYaw(s.heading) : multiplyQuat(quatFromYaw(s.heading - (s.startHeading ?? s.heading)), rotation);
     }
   }
   if (!actor) return pose;

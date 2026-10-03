@@ -3,8 +3,11 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import type { App } from '../app/App';
 import type { Playback } from '../app/Playback';
 import { deleteSelected, duplicateSelected, readTransform, snapToFloor } from '../interaction/ops';
+import type { KeyframePath } from '../camera/KeyframePath';
 import type { Editor } from '../model/Editor';
-import { editPath, waypointAt, type Vec3 } from '../model/scene';
+import { movePathPoint, type PathPointRef } from '../model/pathEdit';
+import { CAMERA_ID, addWaypoint, type Vec3 } from '../model/scene';
+import type { PathHandles } from '../sync/PathHandles';
 import type { SceneSync } from '../sync/SceneSync';
 import { announce } from '../ui/announce';
 
@@ -15,7 +18,8 @@ const floorPlane = new Plane(new Vector3(0, 1, 0), 0);
 
 /**
  * Desktop scene editing: click to select, TransformControls gizmo, keyboard shortcuts,
- * and waypoint drawing (click the floor) while path mode is on.
+ * waypoint drawing (click the floor) while path mode is on, and Bézier path editing: click a waypoint,
+ * handle or camera key to move it with the gizmo.
  */
 export class DesktopEditor {
   readonly gizmo: TransformControls;
@@ -29,12 +33,18 @@ export class DesktopEditor {
   private readonly ndc = new Vector2();
   private down: { x: number; y: number; onGizmo: boolean } | null = null;
   private readonly listeners = new Set<() => void>();
+  /** Path point being edited with the gizmo (instead of the selected object), if any. */
+  private activePath: PathPointRef | null = null;
+  /** Gizmo mode for objects; path points always translate. */
+  private userMode: GizmoMode = 'translate';
 
   constructor(
     private readonly app: App,
     private readonly editor: Editor,
     private readonly sync: SceneSync,
     private readonly playback: Playback,
+    private readonly keyPath: KeyframePath,
+    private readonly pathHandles: PathHandles,
   ) {
     const dom = app.renderer.domElement;
     this.gizmo = new TransformControls(app.camera, dom);
@@ -50,6 +60,15 @@ export class DesktopEditor {
       else editor.commit();
     });
     this.gizmo.addEventListener('objectChange', () => {
+      const ref = this.activePath;
+      if (ref) {
+        const target = this.gizmo.object;
+        if (target) {
+          const p = target.position.toArray() as Vec3;
+          editor.transient((d) => movePathPoint(d, ref, p));
+        }
+        return;
+      }
       const id = editor.selectedId;
       const root = id ? sync.rootOf(id) : undefined;
       if (id && root) editor.setTransform(id, readTransform(root), true);
@@ -58,6 +77,7 @@ export class DesktopEditor {
     editor.subscribe((c) => {
       if (c === 'selection' || c === 'doc') this.attach();
       if (c === 'selection' && this.pathMode && !editor.selected) this.setPathMode(false);
+      if (c === 'selection' && this.activePath && this.activePath.owner !== editor.selectedId) this.setActivePath(null);
     });
     playback.onChange(() => this.attach());
     app.xrSession.addEventListener('change', () => this.attach());
@@ -82,19 +102,38 @@ export class DesktopEditor {
   }
 
   get mode(): GizmoMode {
-    return this.gizmo.mode as GizmoMode;
+    return this.userMode;
   }
 
   setMode(mode: GizmoMode): void {
-    if (mode !== this.gizmo.mode) announce({ translate: 'Move', rotate: 'Rotate', scale: 'Scale' }[mode] + ' mode');
+    if (mode !== this.userMode) announce({ translate: 'Move', rotate: 'Rotate', scale: 'Scale' }[mode] + ' mode');
+    this.userMode = mode;
+    this.setActivePath(null);
+    this.applyGizmoMode();
+    this.emit();
+  }
+
+  private applyGizmoMode(): void {
+    const mode = this.activePath ? 'translate' : this.userMode;
     this.gizmo.setMode(mode);
     this.gizmo.setSpace(mode === 'translate' ? 'world' : 'local');
-    this.emit();
+  }
+
+  /** Edits one path point with the gizmo (null goes back to the selected object). */
+  private setActivePath(ref: PathPointRef | null): void {
+    if (!ref && !this.activePath) return;
+    this.activePath = ref;
+    this.pathHandles.highlight(ref);
+    this.keyPath.highlight(ref?.owner === CAMERA_ID && ref.part === 'anchor' ? ref.index : null);
+    if (ref) announce(ref.part === 'anchor' ? 'Editing a path point: drag the gizmo, Esc to finish' : 'Editing a curve handle: drag the gizmo, Esc to finish');
+    this.applyGizmoMode();
+    this.attach();
   }
 
   setPathMode(on: boolean): void {
     const was = this.pathMode;
     this.pathMode = on && !!this.editor.selected;
+    if (this.pathMode) this.setActivePath(null);
     if (this.pathMode !== was) announce(this.pathMode ? 'Drawing path: click the floor to add waypoints, Escape to finish' : 'Path drawing off');
     this.app.renderer.domElement.style.cursor = this.pathMode ? 'crosshair' : '';
     this.emit();
@@ -130,7 +169,14 @@ export class DesktopEditor {
 
   private attach(): void {
     const id = this.editor.selectedId;
-    const root = id ? this.sync.rootOf(id) : undefined;
+    const ref = this.activePath;
+    const root = ref
+      ? ref.owner === CAMERA_ID && ref.part === 'anchor'
+        ? this.keyPath.marker(ref.index)
+        : this.pathHandles.objectFor(ref)
+      : id
+        ? this.sync.rootOf(id)
+        : undefined;
     const usable = root && !this.playback.playing && !this.app.xrSession.presenting && !this.suspended();
     if (usable) {
       if (this.gizmo.object !== root) this.gizmo.attach(root);
@@ -147,10 +193,24 @@ export class DesktopEditor {
     if (this.pathMode) {
       const sel = this.editor.selected;
       const hit = this.raycaster.ray.intersectPlane(floorPlane, new Vector3());
-      if (sel && hit) this.editor.update(sel.id, (o) => editPath(o).waypoints.push(waypointAt(o, hit.x, hit.z)));
+      if (sel && hit) this.editor.update(sel.id, (o) => addWaypoint(o, hit.x, hit.z));
       return;
     }
 
+    // Path points (waypoints, handles, camera keys) sit on top of objects: try them first.
+    const pathHit = this.raycaster.intersectObject(this.pathHandles.pickables, true)[0];
+    const keyHit = this.raycaster.intersectObject(this.keyPath.markers, true)[0];
+    if (pathHit && (!keyHit || pathHit.distance <= keyHit.distance)) {
+      this.setActivePath(this.pathHandles.refOf(pathHit.object));
+      return;
+    }
+    const keyIndex = keyHit ? this.keyPath.keyIndexOf(keyHit.object) : null;
+    if (keyIndex !== null) {
+      this.editor.select(CAMERA_ID);
+      this.setActivePath({ owner: CAMERA_ID, index: keyIndex, part: 'anchor' });
+      return;
+    }
+    this.setActivePath(null);
     const hits = this.raycaster.intersectObjects(this.sync.pickRoots, true);
     const id = hits.length ? this.sync.objectIdOf(hits[0].object) : null;
     this.editor.select(id);
@@ -189,7 +249,8 @@ export class DesktopEditor {
     } else if (key === ' ') {
       this.onSpace();
     } else if (key === 'escape') {
-      if (this.pathMode) this.setPathMode(false);
+      if (this.activePath) this.setActivePath(null);
+      else if (this.pathMode) this.setPathMode(false);
       else this.editor.select(null);
     } else {
       return;

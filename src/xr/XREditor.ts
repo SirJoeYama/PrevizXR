@@ -25,8 +25,10 @@ import type { Takes } from '../app/Takes';
 import { spawn, type Spawnable } from '../app/spawn';
 import { readTransform, snapToFloor } from '../interaction/ops';
 import type { Editor } from '../model/Editor';
-import { CAMERA_ID, editPath, waypointAt, type Quat, type Transform, type Vec3 } from '../model/scene';
+import { CAMERA_ID, addWaypoint, type Quat, type Transform, type Vec3 } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
+import type { PathHandles } from '../sync/PathHandles';
+import { movePathPoint, type PathPointRef } from '../model/pathEdit';
 import { VRMenu } from '../ui/vr/VRMenu';
 import type { XRInputSlot } from './XRInput';
 
@@ -69,6 +71,8 @@ interface Grab {
   id: string | null;
   /** Camera keyframe index being moved, or null. */
   key: number | null;
+  /** Bézier path point (waypoint or handle) being moved, or null. */
+  path: PathPointRef | null;
   target: Object3D;
   /** The button that started the grab; releasing it ends the grab. */
   button: Button;
@@ -94,6 +98,8 @@ interface Hand {
   hitKey: number | null;
   /** The detached camera monitor is under the ray. */
   hitMonitor: boolean;
+  /** Bézier path point (waypoint or handle of the selected path) under the ray. */
+  hitPath: PathPointRef | null;
   hitPoint: Vector3 | null;
   menuUv: Vector2 | null;
   floorPoint: Vector3 | null;
@@ -157,6 +163,7 @@ export class XREditor {
     takes: Takes,
     private readonly keyPath: KeyframePath,
     project: Project,
+    private readonly pathHandles: PathHandles,
   ) {
     this.takes = takes;
     this.menu = new VRMenu(editor, playback, takes, project, {
@@ -206,6 +213,7 @@ export class XREditor {
         hitObject: null,
         hitKey: null,
         hitMonitor: false,
+        hitPath: null,
         hitPoint: null,
         menuUv: null,
         floorPoint: null,
@@ -405,6 +413,7 @@ export class XREditor {
     hand.hitObject = null;
     hand.hitKey = null;
     hand.hitMonitor = false;
+    hand.hitPath = null;
     hand.hitPoint = null;
     hand.floorPoint = this.raycaster.ray.intersectPlane(floorPlane, new Vector3());
     let dist = Infinity;
@@ -424,12 +433,18 @@ export class XREditor {
 
     if (!hand.menuUv && !hand.grab && this.holder !== hand) {
       const keyHit = this.keyPath.group.visible ? this.raycaster.intersectObject(this.keyPath.markers, true)[0] : undefined;
+      const pathHit = this.raycaster.intersectObject(this.pathHandles.pickables, true)[0];
       const hit = this.raycaster.intersectObjects(this.sync.pickRoots, true)[0];
       const monitorHit = this.vcam.isMonitorDetached ? this.raycaster.intersectObject(this.vcam.monitorGroup, true)[0] : undefined;
       if (monitorHit && (!hit || monitorHit.distance <= hit.distance) && (!keyHit || monitorHit.distance <= keyHit.distance)) {
         hand.hitMonitor = true;
         hand.hitPoint = monitorHit.point;
         dist = monitorHit.distance;
+      } else if (pathHit && (!hit || pathHit.distance <= hit.distance + 0.05) && (!keyHit || pathHit.distance <= keyHit.distance)) {
+        // Path points are small: prefer them, like keys, when about as close as what is behind.
+        hand.hitPath = this.pathHandles.refOf(pathHit.object);
+        hand.hitPoint = pathHit.point;
+        dist = pathHit.distance;
       } else if (keyHit && (!hit || keyHit.distance <= hit.distance + 0.05)) {
         // Keys are small and sit on the path: prefer them when they are about as close as the object behind.
         hand.hitKey = this.keyPath.keyIndexOf(keyHit.object);
@@ -445,7 +460,7 @@ export class XREditor {
     }
 
     const material = hand.line.material as LineBasicMaterial;
-    material.color.set(hand.menuUv || hand.hitMonitor ? 0xffffff : hand.hitKey !== null ? 0xffb547 : hand.hitObject ? 0x7cc4ff : 0xffb547);
+    material.color.set(hand.menuUv || hand.hitMonitor ? 0xffffff : hand.hitKey !== null || hand.hitPath ? 0xffb547 : hand.hitObject ? 0x7cc4ff : 0xffb547);
     hand.line.scale.z = Math.min(dist, RAY_LENGTH);
     const placing = this.pathMode && this.pathFor !== CAMERA_ID;
     const point = placing && !hand.menuUv ? hand.floorPoint : hand.hitPoint;
@@ -460,6 +475,7 @@ export class XREditor {
   private updateKeyHighlight(): void {
     const grabbed = this.hands.find((h) => h.grab && h.grab.key !== null)?.grab?.key;
     this.keyPath.highlight(grabbed ?? this.hands.find((h) => h.hitKey !== null)?.hitKey ?? this.menu.selectedKey);
+    this.pathHandles.highlight(this.hands.find((h) => h.grab?.path)?.grab?.path ?? this.hands.find((h) => h.hitPath)?.hitPath ?? null);
   }
 
   private onTrigger(hand: Hand): void {
@@ -484,7 +500,7 @@ export class XREditor {
     const sel = this.editor.selected;
     if (!this.pathMode || !sel || sel.id !== this.pathFor || !hand.floorPoint) return false;
     const { x, z } = hand.floorPoint;
-    this.editor.update(sel.id, (o) => editPath(o).waypoints.push(waypointAt(o, x, z)));
+    this.editor.update(sel.id, (o) => addWaypoint(o, x, z));
     return true;
   }
 
@@ -502,26 +518,29 @@ export class XREditor {
   }
 
   private canGrab(hand: Hand): boolean {
-    return !!hand.hitObject || hand.hitKey !== null || hand.hitMonitor || this.hands.some((h) => h !== hand && h.grab);
+    return !!hand.hitObject || hand.hitKey !== null || hand.hitMonitor || !!hand.hitPath || this.hands.some((h) => h !== hand && h.grab);
   }
 
   /** Grabs what the ray points at, or (second hand, while the other grabs an object) starts scaling it. */
   private startGrab(hand: Hand, button: Button, freeRotation: boolean): void {
     const other = this.hands.find((h) => h !== hand && h.grab)?.grab;
-    if (other?.id && other.id !== CAMERA_ID && hand.hitKey === null && !hand.hitMonitor && (!hand.hitObject || hand.hitObject === other.id)) {
+    if (other?.id && other.id !== CAMERA_ID && hand.hitKey === null && !hand.hitMonitor && !hand.hitPath && (!hand.hitObject || hand.hitObject === other.id)) {
       const root = this.sync.rootOf(other.id);
       if (root) this.scaling = { id: other.id, d0: this.handDistance(), s0: root.scale.clone(), hand, button };
       return;
     }
     let target: Object3D | undefined;
     let id: string | null = null;
-    const key = hand.hitKey;
+    const key = hand.hitPath ? null : hand.hitKey;
+    const path = hand.hitPath;
     // The monitor can be moved any time (watching a preview is the point); scene edits wait for playback to end.
     if (hand.hitMonitor) target = this.vcam.monitorGroup;
     else if (this.playback.playing || this.takes.busy) return;
+    else if (path) target = this.pathHandles.objectFor(path);
     else if (key !== null) {
       target = this.keyPath.marker(key);
       this.menu.selectedKey = key;
+      this.editor.select(CAMERA_ID); // shows the path's handles
     } else if (hand.hitObject) {
       id = hand.hitObject;
       target = this.sync.rootOf(id);
@@ -532,6 +551,7 @@ export class XREditor {
     hand.grab = {
       id,
       key,
+      path,
       target,
       button,
       offset: new Matrix4(),
@@ -577,7 +597,11 @@ export class XREditor {
       const yaw = this.yawOf(hand.slot.ray.matrixWorld) - g.startYaw + g.twist;
       root.quaternion.setFromAxisAngle(UP, yaw).multiply(g.startQuat);
     }
-    if (g.key !== null) {
+    if (g.path) {
+      const ref = g.path;
+      const p = root.position.toArray() as Vec3;
+      this.editor.transient((d) => movePathPoint(d, ref, p));
+    } else if (g.key !== null) {
       const i = g.key;
       const p = root.position.toArray().map(round) as Vec3;
       const q = root.quaternion.toArray() as Quat;

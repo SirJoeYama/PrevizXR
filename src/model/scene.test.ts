@@ -210,6 +210,8 @@ describe('scene serialization', () => {
     expect(parsed.objects[0].actor).toEqual({ clip: 'idle', speed: 1.3, waypoints: [], loop: true });
     const prop = { ...actor, id: 'p', kind: 'prop', actor: undefined, motion: { speed: null, waypoints: [[1, 0, 2]], loop: 0 } };
     expect(parseScene({ ...doc, objects: [prop] }).objects[0].motion).toEqual({ speed: 2, waypoints: [[1, 0, 2]], loop: false });
+    const curved = { ...prop, motion: { speed: 1, waypoints: [[1, 0, 2]], loop: false, handles: [null, { in: [0, 0, -1], out: [0, 0, 1] }, { in: [1] }, 'x'] } };
+    expect(parseScene({ ...doc, objects: [curved] }).objects[0].motion!.handles).toEqual([null, { in: [0, 0, -1], out: [0, 0, 1] }]);
   });
 });
 

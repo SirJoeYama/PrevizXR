@@ -5,6 +5,7 @@ import { CameraView } from '../desktop/CameraView';
 import { DesktopEditor } from '../desktop/DesktopEditor';
 import { Editor } from '../model/Editor';
 import { SceneSync } from '../sync/SceneSync';
+import { PathHandles } from '../sync/PathHandles';
 import { sampleKeyframes } from '../model/take';
 import type { TakeRenderer } from '../render/TakeRenderer';
 import { XREditor } from '../xr/XREditor';
@@ -27,6 +28,8 @@ export class Studio {
   readonly cameraView: CameraView;
   /** Camera-path line and keyframe markers. */
   readonly keyPath: KeyframePath;
+  /** Editable Bézier points (anchors and handles) of the selected path. */
+  readonly pathHandles: PathHandles;
   readonly takes: Takes;
   private rendererPromise: Promise<TakeRenderer> | null = null;
 
@@ -37,11 +40,13 @@ export class Studio {
     this.project = new Project(this.editor);
     this.camera = new VirtualCamera(app, this.editor, this.sync);
     this.takes = new Takes(this.editor, this.sync, this.playback, this.camera);
-    this.desktopEditor = new DesktopEditor(app, this.editor, this.sync, this.playback);
     this.keyPath = new KeyframePath(this.editor);
-    app.scene.add(this.keyPath.group);
+    this.pathHandles = new PathHandles(this.editor);
+    app.scene.add(this.keyPath.group, this.pathHandles.group);
     app.addEditorOnly(this.keyPath.group);
-    this.xrEditor = new XREditor(app, this.editor, this.sync, this.playback, this.camera, this.takes, this.keyPath, this.project);
+    app.addEditorOnly(this.pathHandles.group);
+    this.desktopEditor = new DesktopEditor(app, this.editor, this.sync, this.playback, this.keyPath, this.pathHandles);
+    this.xrEditor = new XREditor(app, this.editor, this.sync, this.playback, this.camera, this.takes, this.keyPath, this.project, this.pathHandles);
     this.cameraView = new CameraView(app, this.editor, this.camera);
     this.desktopEditor.suspended = () => this.cameraView.throughCamera || this.takes.busy;
     this.desktopEditor.onSpace = () => (this.takes.busy ? this.takes.stop() : this.playback.toggle());

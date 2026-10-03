@@ -1,5 +1,6 @@
 import { ACTOR_CLIPS, type CameraKey, type Quat, type SceneDoc, type SceneObjectKind, type Vec3 } from './scene';
-import { catmullRom, lerp, lerp3, normalizeQuat, r5, round3, round4, slerp } from './math';
+import { bezierPoint, resolveHandles, segments } from './bezier';
+import { lerp, lerp3, normalizeQuat, r5, round3, round4, slerp } from './math';
 import { objectPoseAt, type ObjectPose } from './motion';
 import type { AspectId, SensorId } from '../camera/lens';
 import { ASPECTS, SENSORS } from '../camera/lens';
@@ -240,7 +241,10 @@ export function nextKeyTime(keys: readonly CameraKey[], position: Vec3): number 
   return Math.round((last.time + Math.max(1, d / KEY_SPEED)) * 10) / 10;
 }
 
-/** Camera state at time t on a keyframed path: Catmull-Rom positions, slerped rotations, linear focal length. */
+/**
+ * Camera state at time t on a keyframed path: positions on the Bézier curve through the keys (auto handles
+ * give the uniform Catmull-Rom curve), slerped rotations, linear focal length. Time is linear within a segment.
+ */
 export function sampleKeyframes(keys: readonly CameraKey[], t: number): Omit<CameraSample, 'focus'> {
   if (keys.length === 0) throw new Error('No keyframes');
   if (keys.length === 1 || t <= keys[0].time) return { p: [...keys[0].position], q: [...keys[0].rotation], focal: keys[0].focalLength };
@@ -251,10 +255,10 @@ export function sampleKeyframes(keys: readonly CameraKey[], t: number): Omit<Cam
   const k1 = keys[i];
   const k2 = keys[i + 1];
   const u = k2.time > k1.time ? (t - k1.time) / (k2.time - k1.time) : 1;
-  const k0 = keys[Math.max(0, i - 1)];
-  const k3 = keys[Math.min(keys.length - 1, i + 2)];
+  const points = keys.map((k) => k.position);
+  const handles = resolveHandles(points, keys.map((k) => k.handles), false);
   return {
-    p: catmullRom(k0.position, k1.position, k2.position, k3.position, u),
+    p: bezierPoint(segments(points, handles, false)[i], u),
     q: slerp(k1.rotation, k2.rotation, u),
     focal: lerp(k1.focalLength, k2.focalLength, u),
   };

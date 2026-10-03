@@ -1,5 +1,5 @@
 import { ASPECTS, FPS_OPTIONS, SENSORS, clampFocal } from '../camera/lens';
-import { ACTOR_CLIPS, DEFAULT_MOTION_SPEED, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type MotionPath, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
+import { ACTOR_CLIPS, DEFAULT_MOTION_SPEED, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type MotionPath, type PathHandle, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
 
 export class SceneFormatError extends Error {}
 
@@ -54,6 +54,7 @@ function parseCamera(c: unknown): CameraRig {
         position: [...(k.position as Vec3)] as Vec3,
         rotation: [...(k.rotation as Quat)] as Quat,
         focalLength: typeof k.focalLength === 'number' ? clampFocal(k.focalLength) : lens.focalLength,
+        ...(isHandle(k.handles) ? { handles: cloneHandle(k.handles) } : {}),
       }))
       .sort((a, b) => a.time - b.time);
   }
@@ -96,6 +97,18 @@ function repairPath(p: MotionPath, defaultSpeed: number): void {
   if (typeof p.speed !== 'number' || !Number.isFinite(p.speed)) p.speed = defaultSpeed;
   if (!Array.isArray(p.waypoints) || !p.waypoints.every((w) => isNums(w, 3))) p.waypoints = [];
   p.loop = !!p.loop;
+  if (p.handles !== undefined) {
+    if (!Array.isArray(p.handles)) delete p.handles;
+    else p.handles = p.handles.slice(0, p.waypoints.length + 1).map((h) => (isHandle(h) ? cloneHandle(h) : null));
+  }
+}
+
+function isHandle(h: unknown): h is PathHandle {
+  return isObj(h) && isNums(h.in, 3) && isNums(h.out, 3);
+}
+
+function cloneHandle(h: PathHandle): PathHandle {
+  return { in: [...h.in], out: [...h.out] };
 }
 
 function safeJson(text: string): unknown {

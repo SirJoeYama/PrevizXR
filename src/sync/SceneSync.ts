@@ -26,6 +26,7 @@ import {
 } from 'three';
 import type { AssetLoader } from '../assets/AssetLoader';
 import type { Editor } from '../model/Editor';
+import { polyline, resolveHandles, segments } from '../model/bezier';
 import { objectPoseAt, type ObjectPose } from '../model/motion';
 import { assetKey, pathOf, type ActorClip, type SceneObject } from '../model/scene';
 import { drawLabel, makeLabel } from './labels';
@@ -61,6 +62,7 @@ const placeholderGeo = new EdgesGeometry(new BoxGeometry(0.5, 0.5, 0.5).translat
 const placeholderMat = new LineBasicMaterial({ color: 0x8b93a5 });
 const errorMat = new LineBasicMaterial({ color: 0xff4d4d });
 const tmpBox = new Box3();
+const pathDotGeo = new SphereGeometry(0.06, 12, 8);
 
 /**
  * Derives the Three.js scene graph from the Editor's SceneDoc. One-way: model → Three.js.
@@ -218,7 +220,7 @@ export class SceneSync {
     e.label.removeFromParent();
     e.label.material.map?.dispose();
     e.label.material.dispose();
-    e.path?.removeFromParent();
+    this.removePath(e);
     e.mixer?.stopAllAction();
     this.entries.delete(e.id);
   }
@@ -336,33 +338,43 @@ export class SceneSync {
     e.activeClip = clip;
   }
 
+  /** The path drawn as its Bézier curve, with a dot per waypoint. */
   private updatePath(e: Entry, obj: SceneObject): void {
     const path = pathOf(obj);
     const points = path && path.waypoints.length ? [obj.transform.position, ...path.waypoints] : [];
-    if (path?.loop && points.length) points.push(obj.transform.position);
-    const sig = `${obj.color}|${JSON.stringify(points)}`;
+    const sig = `${obj.color}|${JSON.stringify(points)}|${path?.loop}|${JSON.stringify(path?.handles ?? null)}`;
     if (sig === e.pathSig) return;
     e.pathSig = sig;
-    e.path?.removeFromParent();
-    e.path = undefined;
-    if (!points.length) return;
+    this.removePath(e);
+    if (!path || !points.length) return;
 
     const group = new Group();
     group.userData.helper = true;
-    const lineGeo = new BufferGeometry().setFromPoints(points.map((p) => new Vector3(p[0], p[1] + 0.02, p[2])));
+    const curve = polyline(segments(points, resolveHandles(points, path.handles, path.loop), path.loop));
+    const lineGeo = new BufferGeometry().setFromPoints(curve.map((p) => new Vector3(p[0], p[1] + 0.02, p[2])));
     const line = new Line(lineGeo, new LineBasicMaterial({ color: obj.color }));
     line.raycast = () => {};
     group.add(line);
-    const dotGeo = new SphereGeometry(0.06, 12, 8);
     const dotMat = new MeshBasicMaterial({ color: obj.color });
-    path!.waypoints.forEach((w) => {
-      const dot = new Mesh(dotGeo, dotMat);
-      dot.position.set(w[0], w[1] + 0.06, w[2]);
+    path.waypoints.forEach((w) => {
+      const dot = new Mesh(pathDotGeo, dotMat);
+      dot.position.set(w[0], w[1] + 0.02, w[2]);
       dot.raycast = () => {};
       group.add(dot);
     });
     e.path = group;
     this.helpers.add(group);
+  }
+
+  private removePath(e: Entry): void {
+    if (!e.path) return;
+    e.path.removeFromParent();
+    // Paths rebuild every frame while a point is dragged: free what each build allocated.
+    e.path.traverse((o) => {
+      if (o instanceof Line) o.geometry.dispose();
+      if (o instanceof Line || o instanceof Mesh) (o.material as MeshBasicMaterial).dispose();
+    });
+    e.path = undefined;
   }
 
   private placeLabel(e: Entry): void {

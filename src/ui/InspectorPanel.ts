@@ -1,7 +1,8 @@
 import { Euler, Quaternion } from 'three';
 import type { DesktopEditor } from '../desktop/DesktopEditor';
 import type { Editor } from '../model/Editor';
-import { ACTOR_CLIPS, CAMERA_ID, DEFAULT_SPEED, editPath, pathOf, type SceneObject, type Transform } from '../model/scene';
+import { hasEditedHandles, smoothPath } from '../model/pathEdit';
+import { ACTOR_CLIPS, CAMERA_ID, DEFAULT_SPEED, clearWaypoints, editPath, pathOf, popWaypoint, type SceneObject, type Transform } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { el, section, setValue } from './dom';
 import { icon } from './icons';
@@ -233,8 +234,9 @@ export class InspectorPanel {
       title: 'Click the floor to add waypoints (P, Esc to finish)',
       onclick: () => this.desktop.setPathMode(!this.desktop.pathMode),
     });
-    const clearBtn = el('button', { class: 'btn', type: 'button', onclick: () => this.editor.update(id, (o) => (editPath(o).waypoints = [])) });
-    const undoPoint = el('button', { class: 'btn', type: 'button', text: '− Last', title: 'Remove the last waypoint', onclick: () => this.editor.update(id, (o) => editPath(o).waypoints.pop()) });
+    const clearBtn = el('button', { class: 'btn', type: 'button', onclick: () => this.editor.update(id, (o) => clearWaypoints(o)) });
+    const undoPoint = el('button', { class: 'btn', type: 'button', text: '− Last', title: 'Remove the last waypoint', onclick: () => this.editor.update(id, (o) => popWaypoint(o)) });
+    const smoothBtn = el('button', { class: 'btn', type: 'button', text: 'Smooth curve', title: 'Reset every edited curve handle to a smooth curve', onclick: () => this.editor.edit((d) => smoothPath(d, id)) });
 
     updaters.push(() => {
       const obj = this.editor.find(id);
@@ -246,6 +248,7 @@ export class InspectorPanel {
       pathBtn.setAttribute('aria-pressed', String(this.desktop.pathMode));
       clearBtn.textContent = `Clear (${a.waypoints.length})`;
       clearBtn.disabled = undoPoint.disabled = a.waypoints.length === 0;
+      smoothBtn.disabled = !hasEditedHandles(this.editor.doc, id);
     });
 
     return el(
@@ -255,7 +258,8 @@ export class InspectorPanel {
       el('label', { class: 'field' }, el('span', { class: 'field-label', text: 'Speed m/s' }), speed),
       el('div', { class: 'row three' }, pathBtn, undoPoint, clearBtn),
       el('label', { class: 'check' }, loop, ' Loop path back to start'),
-      el('p', { class: 'hint', text: 'Waypoints play back with Preview (Space).' }),
+      el('div', { class: 'row' }, smoothBtn),
+      el('p', { class: 'hint', text: 'Click a waypoint or curve handle in the view to drag it. Paths play back with Preview (Space).' }),
     );
   }
 
