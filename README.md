@@ -9,7 +9,7 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 ![PrevizXR screenshot](docs/screenshot.svg)
 <!-- Screenshot placeholder: replace docs/screenshot.svg with a real capture -->
 
-> **Status:** early development. Milestones 1–5 of 7 are done: scene building in VR and on desktop, a 2,000+ model library, a virtual camera with real lens controls, take recording and playback, and rendering clay, color_id and depth passes to MP4. See the [roadmap](#roadmap).
+> **Status:** early development. Milestones 1–6 of 7 are done: scene building in VR and on desktop, a 2,000+ model library, a virtual camera with real lens controls, take recording and playback, and rendering five frame-synced passes plus the camera into one bundle. See the [roadmap](#roadmap).
 
 ## Features
 
@@ -21,11 +21,9 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 - **Takes** *(available now)*: record a camera move with a 3-2-1 countdown, in VR (hold the camera and pull the trigger) or on desktop (fly the camera in camera view). Actors play their paths from the start while you record. Takes are captured at exactly the lens frame rate (24/25/30 fps), whatever the headset refresh rate, and stored per frame: camera position, rotation, focal length and focus distance, plus every object's transform and each actor's clip and clip time. Play takes back in the headset or on desktop. Smoothing (0–100%) is applied on playback without touching the raw take. Takes are saved in the browser and import/export as `.take.json`.
 - **Camera paths** *(available now)*: on desktop, build a keyframed dolly/crane move (smooth spline through keys, with rotation and focal length interpolated), preview it, and save it as a take.
 
-- **Render passes** *(available now)*: **clay**, **color_id** and **depth**, rendered offline frame by frame from a take, all at the same resolution (480p/720p/1080p on the short side) and frame rate. Each pass is encoded to **H.264 MP4** with WebCodecs and [Mediabunny](https://mediabunny.dev), or to a **lossless PNG sequence** (zip) when you need exact ID colors and depth values, or when the browser can't encode H.264. Rendering is deterministic: the same take renders byte-identical frames every time. Shows progress, can be canceled, and keeps running at full speed in a background tab.
+- **Render passes** *(available now)*: **clay**, **color_id**, **depth**, **normals** and **pose** (OpenPose COCO-18), rendered offline frame by frame from a take, all at the same resolution (480p/720p/1080p on the short side) and frame rate. Each pass is encoded to **H.264 MP4** with WebCodecs and [Mediabunny](https://mediabunny.dev), or to a **lossless PNG sequence** (zip) when you need exact ID colors and depth values, or when the browser can't encode H.264. Rendering is deterministic: the same take renders byte-identical frames every time. Shows progress, can be canceled, and keeps running at full speed in a background tab.
 
-Planned:
-
-- **More passes and the export bundle:** normals and OpenPose (COCO-18) passes; the camera as JSON and as an animated glTF; everything for a take in one zip with a `manifest.json`.
+- **Export bundle** *(available now)*: one zip per render with every pass, `camera.json` (per-frame position, rotation, focal length, focus, field of view and pinhole intrinsics), `camera.glb` (animated camera for Blender, Unreal or After Effects), the take and scene files, `manifest.json` (describes every file and how each pass is encoded) and `CREDITS.txt`.
 
 ## Setup
 
@@ -111,16 +109,16 @@ The menu's **Library** tab has one-tap searches (chair, car, tree, …) because 
 
 ## Feeding passes into AI video tools
 
-Every pass is rendered from the same camera, at the same resolution and frame rate, so the frames line up exactly. Normals and pose (and the zip bundle) arrive in milestone 6. Typical uses:
+Every pass is rendered from the same camera, at the same resolution and frame rate, so the frames line up exactly. `manifest.json` in the bundle documents each pass's encoding. Typical uses:
 
 | Pass | Use it as |
 | --- | --- |
 | `depth.mp4` | Depth control (ControlNet depth, Runway/Luma-style structure guidance, Wan/VACE depth conditioning). White means near, black far, linear between the near/far you chose (planar view-space depth). |
-| `pose.mp4` | OpenPose control for character motion (ControlNet OpenPose, VACE pose, Animate-style pipelines). COCO-18 keypoints in standard OpenPose colors on black. |
+| `pose.mp4` | OpenPose control for character motion (ControlNet OpenPose, VACE pose, Animate-style pipelines). COCO-18 body keypoints from the actors' skeletons, drawn like `controlnet_aux` in standard OpenPose colors on black. Eyes, nose and ears are estimated from the head and body orientation; occluded joints are still drawn. |
 | `clay.mp4` | Source video for video-to-video restyling (Runway Gen-4 V2V, Luma Modify, Kling, ComfyUI AnimateDiff/VACE). Neutral grey with soft studio light (the scene's own lights are ignored), so the model is free to invent materials and lighting. |
-| `normals.mp4` | Normal-map control where supported, or as an extra structure cue. |
+| `normals.mp4` | Normal-map control where supported, or as an extra structure cue. View-space normals in the OpenGL convention (+X right, +Y up, +Z toward the camera; rgb = n × 0.5 + 0.5) on black. Some tools expect DirectX-style normals (green flipped): invert the green channel if surfaces look lit from below. |
 | `color_id.mp4` | Segmentation-style masks: each actor or prop has a flat, unique color (the swatch in the inspector) on black, handy for regional prompts or compositing masks. The floor is black too. Use the PNG format when you need exact colors, because H.264 slightly shifts colors and blurs edges. |
-| `camera.json` / `camera.glb` | The exact camera move, to match it in Blender, Unreal or After Effects, or to drive camera-conditioned models. |
+| `camera.json` / `camera.glb` | The exact camera move, to match it in Blender, Unreal or After Effects, or to drive camera-conditioned models. Y-up, metres, camera looking down −Z. The JSON has per-frame intrinsics (fx, fy, cx, cy) for the rendered resolution. glTF can't animate field of view, so per-frame focal lengths are in the camera node's extras. |
 
 Tips:
 - Pick the aspect ratio and fps your target model supports *before* recording (for example 16:9 at 24 fps).
@@ -134,7 +132,7 @@ Tips:
 3. ✅ Virtual camera with live monitor and lens controls
 4. ✅ Take recording and playback
 5. ✅ Render mode with clay, color_id and depth to MP4
-6. Normals and pose passes, camera export, zip bundle
+6. ✅ Normals and pose passes, camera export, zip bundle
 7. Polish: Quest performance (72 fps), docs, menu accessibility, hand tracking
 
 ## Contributing

@@ -48,6 +48,33 @@ void main() {
   gl_FragColor = vec4(vec3(d), 1.0);
 }`;
 
+/** View-space normals as color: rgb = n * 0.5 + 0.5, flipped on back faces. Skinning-aware. */
+const normalVertex = /* glsl */ `
+#include <common>
+#include <morphtarget_pars_vertex>
+#include <skinning_pars_vertex>
+varying vec3 vViewNormal;
+void main() {
+  #include <beginnormal_vertex>
+  #include <morphnormal_vertex>
+  #include <skinbase_vertex>
+  #include <skinnormal_vertex>
+  #include <defaultnormal_vertex>
+  #include <begin_vertex>
+  #include <morphtarget_vertex>
+  #include <skinning_vertex>
+  #include <project_vertex>
+  vViewNormal = transformedNormal;
+}`;
+
+const normalFragment = /* glsl */ `
+varying vec3 vViewNormal;
+void main() {
+  vec3 n = normalize(vViewNormal);
+  if (!gl_FrontFacing) n = -n;
+  gl_FragColor = vec4(n * 0.5 + 0.5, 1.0);
+}`;
+
 /**
  * Per-pass scene setup. Each pass swaps materials/background/visibility, renders, and restores.
  * Output values are written straight into an 8-bit linear render target, so color_id bytes equal the
@@ -61,6 +88,7 @@ export class Passes {
     fragmentShader: depthFragment,
     side: DoubleSide,
   });
+  readonly normals = new ShaderMaterial({ vertexShader: normalVertex, fragmentShader: normalFragment, side: DoubleSide });
   private readonly idMaterials = new Map<string, MeshBasicMaterial>();
   /** Even, soft studio light for clay: the scene's own lights are switched off for this pass. */
   private readonly clayRig = new Group();
@@ -103,6 +131,12 @@ export class Passes {
           this.scene.background = BLACK;
           this.scene.overrideMaterial = this.depth;
           break;
+        case 'normals':
+          this.scene.background = BLACK;
+          this.scene.overrideMaterial = this.normals;
+          break;
+        case 'pose':
+          break; // drawn in 2D by TakeRenderer, no 3D render
         case 'color_id':
           this.scene.background = BLACK;
           this.floor.visible = false;
@@ -146,6 +180,7 @@ export class Passes {
   dispose(): void {
     this.clay.dispose();
     this.depth.dispose();
+    this.normals.dispose();
     for (const m of this.idMaterials.values()) m.dispose();
   }
 }

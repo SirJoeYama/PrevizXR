@@ -3,13 +3,15 @@ import type { Vec3 } from '../model/scene';
 
 /** Pure planning helpers for rendering takes (no Three.js, unit-tested). */
 
-export const PASSES = ['clay', 'color_id', 'depth'] as const;
+export const PASSES = ['clay', 'color_id', 'depth', 'normals', 'pose'] as const;
 export type PassId = (typeof PASSES)[number];
 
 export const PASS_INFO: Record<PassId, { label: string; description: string }> = {
   clay: { label: 'Clay', description: 'Neutral grey materials, soft lighting. Source for video-to-video restyling.' },
   color_id: { label: 'Color ID', description: 'Flat, unlit, unique color per object on black. Masks and regional prompts.' },
   depth: { label: 'Depth', description: 'Normalized linear depth, white = near, black = far. Depth control.' },
+  normals: { label: 'Normals', description: 'View-space normals (OpenGL: +X right, +Y up, +Z toward camera). Normal control.' },
+  pose: { label: 'Pose', description: 'OpenPose COCO-18 skeletons of the actors on black. Pose control.' },
 };
 
 /** Short side of the output in pixels. */

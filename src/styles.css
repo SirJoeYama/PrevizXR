@@ -227,3 +227,5 @@ kbd {
 .dialog progress { width: 100%; accent-color: var(--accent); }
 .download { color: var(--focus); font-size: 13px; overflow-wrap: anywhere; }
 .row > .time { flex: none; }
+
+.download-bundle { display: block; text-align: center; text-decoration: none; }

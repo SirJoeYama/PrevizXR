@@ -2,7 +2,7 @@ import type { Takes } from '../app/Takes';
 import type { Playback } from '../app/Playback';
 import type { Take } from '../model/take';
 import { PASSES, PASS_INFO, RESOLUTIONS, outputSize, type PassId } from '../render/plan';
-import type { RenderOutput, TakeRenderer } from '../render/TakeRenderer';
+import type { RenderResult, TakeRenderer } from '../render/TakeRenderer';
 import { loadTake } from '../storage/takeStore';
 import { el } from './dom';
 
@@ -238,16 +238,17 @@ export class RenderDialog {
       return;
     }
     this.clearResults();
+    const started = performance.now();
     this.abort = new AbortController();
     this.setRunning(true);
     try {
-      const outputs = await this.renderer.render({ take, shortSide: this.shortSide, passes, depthNear: near, depthFar: far, format: this.formatChoice }, (p) => {
+      const result = await this.renderer.render({ take, shortSide: this.shortSide, passes, depthNear: near, depthFar: far, format: this.formatChoice }, (p) => {
         this.progress.value = p.frame / p.total;
         const eta = (p.total - p.frame) / Math.max(p.rate, 0.01);
         this.progressText.textContent = `Frame ${p.frame} / ${p.total} · ${p.rate.toFixed(1)} frames/s · about ${Math.ceil(eta)} s left`;
       }, this.abort.signal);
-      this.progressText.textContent = `Done: ${outputs.length} file${outputs.length === 1 ? '' : 's'}.`;
-      this.showResults(outputs);
+      this.progressText.textContent = `Done in ${formatSeconds((performance.now() - started) / 1000)}.`;
+      this.showResults(result);
     } catch (err) {
       if ((err as Error).name === 'AbortError') this.progressText.textContent = 'Render canceled.';
       else {
@@ -272,15 +273,16 @@ export class RenderDialog {
     this.takeSelect.disabled = running;
   }
 
-  private showResults(outputs: RenderOutput[]): void {
-    const links = outputs.map((o) => {
-      const url = URL.createObjectURL(o.blob);
+  private showResults(result: RenderResult): void {
+    const link = (f: { name: string; blob: Blob }, cls: string) => {
+      const url = URL.createObjectURL(f.blob);
       this.urls.push(url);
-      return el('a', { class: 'download', href: url, download: o.filename, text: `⤓ ${o.filename} (${(o.blob.size / 1e6).toFixed(1)} MB)` });
-    });
+      return el('a', { class: cls, href: url, download: f.name, text: `⤓ ${f.name} (${formatSize(f.blob.size)})` });
+    };
     this.results.replaceChildren(
-      ...links,
-      el('button', { class: 'btn', type: 'button', text: 'Download all', onclick: () => links.forEach((a, i) => setTimeout(() => a.click(), i * 300)) }),
+      link(result.bundle, 'btn primary download-bundle'),
+      el('p', { class: 'hint', text: 'The bundle holds every pass, camera.json, camera.glb, the take and scene files, manifest.json and CREDITS.txt.' }),
+      ...result.files.map((f) => link(f, 'download')),
     );
   }
 
@@ -296,6 +298,14 @@ export class RenderDialog {
   }
 }
 
+function formatSize(bytes: number): string {
+  return bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1e3))} kB`;
+}
+
+function formatSeconds(s: number): string {
+  return s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+}
+
 function readSettings(): Settings {
   try {
     const s = JSON.parse(localStorage.getItem(LAST_SETTINGS) ?? 'null') as Partial<Settings> | null;
@@ -305,5 +315,5 @@ function readSettings(): Settings {
   } catch {
     // ignore
   }
-  return { shortSide: 720, passes: [...PASSES], format: 'mp4' };
+  return { shortSide: 720, passes: ['clay', 'color_id', 'depth', 'pose'], format: 'mp4' };
 }
