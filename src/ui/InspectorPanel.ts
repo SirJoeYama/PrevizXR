@@ -97,12 +97,17 @@ export class InspectorPanel {
       el('button', { class: 'btn danger', type: 'button', text: 'Delete', title: 'Delete (Del)', onclick: () => this.editor.remove(id) }),
     );
 
+    const hidden = el('input', { type: 'checkbox', onchange: () => this.editor.update(id, (o) => (o.hiddenInRenders = hidden.checked || undefined)) });
+    updaters.push(() => (hidden.checked = !!current()?.hiddenInRenders));
+    const hiddenRow = el('label', { class: 'check', title: 'Reference only: not shown on the camera monitor or in rendered passes' }, hidden, ' Hide in renders (reference only)');
+
     const parts: Array<HTMLElement | null> = [
       el('div', { class: 'name-row' }, swatch, name),
       modeRow,
       fields,
       obj.actor ? this.actorFields(id, updaters) : null,
       obj.light ? this.lightFields(id, updaters) : null,
+      hiddenRow,
       actions,
       obj.asset.source === 'poly' ? el('p', { class: 'hint', text: `“${obj.asset.title}” by ${obj.asset.creator}, ${obj.asset.licence}` }) : null,
     ];

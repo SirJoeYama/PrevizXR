@@ -14,6 +14,7 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 
 - **Scene building** *(available now)*: four rigged humanoid actors with idle, walk, run and sit clips and waypoint paths you draw on the floor; blockout shapes (box, cylinder, wall, door frame, chair, table, car); 42 bundled furniture, street, vehicle, nature and building models; point and spot lights. Every object gets a flat ID color and a name label. Grab, move, rotate, scale, snap to floor, duplicate, delete, undo and redo, in VR and on desktop. Preview plays actor paths and clips from the start.
 - **Model library** *(available now)*: search and place any of the 2,292 [Poly by Google](https://poly.pizza/u/Poly%20by%20Google) models on Poly Pizza (CC-BY 3.0), loaded on demand. Attribution is tracked per scene in the Credits panel. See [ASSETS.md](ASSETS.md).
+- **Reference images** *(available now)*: import JPG, PNG or WebP storyboards, concept art or plates, and place them as floating picture planes you can grab, move, rotate and scale in VR. They are hidden from the camera monitor and renders by default (toggle **Hide in renders** in the inspector to use one as a backdrop). Images live in the browser's image library and are embedded in exported scene files.
 - **Scenes** *(available now)*: autosaved in the browser (IndexedDB), reopened on the next visit, and importable/exportable as `.previz.json` files.
 - **Virtual camera** *(available now)*: a camera you hold in VR (it follows your right controller) or fly on desktop, with a live monitor on the camera body and a picture-in-picture monitor on desktop. Focal length from 14 to 135 mm (presets or continuous) gives the correct field of view for a Super 35 (24.89 × 18.66 mm) or full-frame (36 × 24 mm) sensor at 16:9, 9:16, 2.39:1 or 1:1. Also: 24/25/30 fps, autofocus on the frame centre or manual focus distance, and rule-of-thirds, safe-area and centre guides.
 
@@ -80,6 +81,8 @@ To render, select a take in the **Takes** panel and click **Render…**. Choose 
 
 Add objects from the **Add** panel in the sidebar: they appear on the floor at the centre of the view, facing you.
 
+**Reference images:** in **Add → Images**, click **Import images…**, drop image files on the 3D view, or paste an image (`Ctrl+V`). Each image becomes a 1 m tall picture plane floating in front of the view; scale it with the gizmo or the inspector. Large photos are downscaled to 2048 px so they stay light on the Quest.
+
 ### VR (Quest controllers)
 
 | Input | Action |
@@ -123,6 +126,8 @@ Use the menu's Camera tab to hold the camera, zoom (±) and bring it to you. Wal
 - **Menu size:** small, medium or large.
 - **Controller vibration** confirms hovering, clicking, grabbing and recording; it can be turned off.
 - **Desktop:** everything in the sidebar is reachable by keyboard, with visible focus. Category tabs follow the WAI-ARIA tabs pattern (arrow keys, Home/End). A *Skip to the 3D viewport* link comes first. Screen readers hear added and removed objects, undo/redo, gizmo and path modes, and recording state through a polite live region. Dialogs trap focus, and Esc closes them (except while rendering, where Cancel is explicit).
+
+The menu's **Images** tab places the images you've imported, centred at eye level in front of you. To get images onto the Quest, import them in the Quest browser before entering VR (Add → Images → Import images… opens the Quest's file picker), or open a scene exported from desktop, which carries its images. Browsers can't show a file picker during an immersive session.
 
 The menu's **Library** tab has one-tap searches (chair, car, tree, …) because there's no keyboard in VR. Use the desktop sidebar to search the full library by name.
 

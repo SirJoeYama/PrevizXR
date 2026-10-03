@@ -1,8 +1,21 @@
-import { Box3, Group, Vector3, type AnimationClip, type Object3D } from 'three';
+import {
+  Box3,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PlaneGeometry,
+  SRGBColorSpace,
+  Texture,
+  Vector3,
+  type AnimationClip,
+  type Object3D,
+} from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { AssetRef, Fit, PrimitiveId } from '../model/scene';
 import { bundledItem, bundledModelUrl } from './catalog';
+import { getImage } from './imageLibrary';
 import { polyModelUrl } from './polyLibrary';
 import { buildPrimitive } from './primitives';
 
@@ -16,6 +29,8 @@ export interface LoadedAsset {
 export class AssetLoader {
   private readonly gltf = new GLTFLoader();
   private readonly cache = new Map<string, Promise<GLTF>>();
+  private readonly textures = new Map<string, Promise<Texture>>();
+  private readonly backMaterial = new MeshStandardMaterial({ color: 0x3a3e46, roughness: 1 });
 
   async load(ref: AssetRef): Promise<LoadedAsset> {
     switch (ref.source) {
@@ -29,7 +44,38 @@ export class AssetLoader {
       }
       case 'poly':
         return this.loadGlb(polyModelUrl(ref.file), ref.fit);
+      case 'image':
+        return { object: await this.buildPicture(ref.id, ref.aspect), clips: [] };
     }
+  }
+
+  /** Picture plane: 1 m tall, `aspect` wide, bottom edge at y = 0, unlit image in front and a dark back. */
+  private async buildPicture(id: string, aspect: number): Promise<Object3D> {
+    let pending = this.textures.get(id);
+    if (!pending) {
+      pending = (async () => {
+        const img = await getImage(id);
+        if (!img) throw new Error(`Image ${id} is not in this browser's image library`);
+        const bitmap = await createImageBitmap(img.blob, { imageOrientation: 'flipY' });
+        const texture = new Texture(bitmap);
+        texture.flipY = false; // already flipped by createImageBitmap
+        texture.colorSpace = SRGBColorSpace;
+        texture.anisotropy = 4;
+        texture.needsUpdate = true;
+        return texture;
+      })();
+      this.textures.set(id, pending);
+      pending.catch(() => this.textures.delete(id));
+    }
+    const texture = await pending;
+    const geometry = new PlaneGeometry(aspect, 1).translate(0, 0.5, 0);
+    const front = new Mesh(geometry, new MeshBasicMaterial({ map: texture, toneMapped: false }));
+    const back = new Mesh(geometry, this.backMaterial);
+    back.rotation.y = Math.PI;
+    const group = new Group();
+    group.name = 'Picture';
+    group.add(front, back);
+    return group;
   }
 
   private async loadGlb(url: string, fit: Fit): Promise<LoadedAsset> {

@@ -45,7 +45,9 @@ export type AssetRef =
   | { source: 'primitive'; id: PrimitiveId }
   | { source: 'bundled'; id: string }
   | { source: 'poly'; id: string; file: string; title: string; creator: string; licence: string; fit: Fit }
-  | { source: 'light'; id: LightType };
+  | { source: 'light'; id: LightType }
+  /** A picture plane: `id` is the image's content hash in the image library; height 1 m, width = aspect. */
+  | { source: 'image'; id: string; aspect: number };
 
 export const ACTOR_CLIPS = ['idle', 'walk', 'run', 'sit'] as const;
 export type ActorClip = (typeof ACTOR_CLIPS)[number];
@@ -75,6 +77,8 @@ export interface SceneObject {
   color: string;
   actor?: ActorSettings;
   light?: LightSettings;
+  /** Editor-only reference (storyboards, mood images): hidden from the camera monitor and render passes. */
+  hiddenInRenders?: boolean;
 }
 
 export interface Guides {

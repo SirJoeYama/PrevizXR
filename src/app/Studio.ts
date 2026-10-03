@@ -50,6 +50,7 @@ export class Studio {
     // Everything the shot must never show.
     app.addEditorOnly(this.sync.helpers);
     app.addEditorOnly(() => this.sync.inlineHelpers);
+    app.addEditorOnly(() => this.sync.renderHidden);
     for (const slot of app.xrInput.slots) {
       app.addEditorOnly(slot.ray);
       app.addEditorOnly(slot.grip);

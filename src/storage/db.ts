@@ -1,9 +1,10 @@
 /** The app's IndexedDB database. Bump DB_VERSION and extend upgrade() when adding stores. */
 
 const DB_NAME = 'previzxr';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 export const SCENES = 'scenes';
 export const TAKES = 'takes';
+export const IMAGES = 'images';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -13,6 +14,7 @@ function upgrade(db: IDBDatabase): void {
     const takes = db.createObjectStore(TAKES, { keyPath: 'id' });
     takes.createIndex('sceneId', 'sceneId');
   }
+  if (!db.objectStoreNames.contains(IMAGES)) db.createObjectStore(IMAGES, { keyPath: 'id' });
 }
 
 export function openDb(): Promise<IDBDatabase> {

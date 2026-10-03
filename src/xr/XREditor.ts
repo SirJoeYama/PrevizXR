@@ -524,7 +524,10 @@ export class XREditor {
   private spawnInFront(item: Spawnable): void {
     const head = new Vector3().setFromMatrixPosition(this.app.camera.matrixWorld);
     const yaw = this.yawOf(this.app.camera.matrixWorld);
-    const at: Vec3 = [round(head.x - Math.sin(yaw) * SPAWN_DISTANCE), 0, round(head.z - Math.cos(yaw) * SPAWN_DISTANCE)];
+    // Picture planes float centred at eye level, a bit closer; everything else stands on the floor.
+    const image = item.asset.source === 'image';
+    const d = image ? 1.2 : SPAWN_DISTANCE;
+    const at: Vec3 = [round(head.x - Math.sin(yaw) * d), image ? round(Math.max(0.05, head.y - 0.5)) : 0, round(head.z - Math.cos(yaw) * d)];
     spawn(this.editor, item, at, Math.atan2(head.x - at[0], head.z - at[2]));
   }
 

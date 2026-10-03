@@ -55,7 +55,7 @@ export class ScenePanel {
         'div',
         { class: 'row' },
         el('button', { class: 'btn', type: 'button', text: 'Import', onclick: () => fileInput.click() }),
-        el('button', { class: 'btn', type: 'button', text: 'Export', onclick: () => project.exportFile() }),
+        el('button', { class: 'btn', type: 'button', text: 'Export', onclick: () => void project.exportFile() }),
       ),
       fileInput,
       this.list,

@@ -1,4 +1,5 @@
 import { BUNDLED, CATEGORIES, type Category } from '../../assets/catalog';
+import { imageUrl, listImages, onImagesChange, type StoredImage } from '../../assets/imageLibrary';
 import { loadPolyLibrary, polyAssetRef, polyThumbUrl, searchPoly, type PolyEntry } from '../../assets/polyLibrary';
 import type { Playback } from '../../app/Playback';
 import type { Takes } from '../../app/Takes';
@@ -24,7 +25,7 @@ export interface VRMenuHost {
   monitorQuality(): number;
 }
 
-type Tab = Category | 'library' | 'camera' | 'takes' | 'settings';
+type Tab = Category | 'library' | 'images' | 'camera' | 'takes' | 'settings';
 
 const W = 768;
 const H = 1280;
@@ -53,6 +54,7 @@ export class VRMenu extends CanvasPanel {
   private shownFocus: number | null | undefined;
   private takesPage = 0;
   private shownFps = -1;
+  private storedImages: StoredImage[] = [];
 
   constructor(
     private readonly editor: Editor,
@@ -65,6 +67,8 @@ export class VRMenu extends CanvasPanel {
     editor.subscribe(() => this.invalidate());
     playback.onChange(() => this.invalidate());
     takes.onChange(() => this.invalidate());
+    onImagesChange(() => void this.loadImages());
+    void this.loadImages();
   }
 
   override update(): void {
@@ -104,14 +108,15 @@ export class VRMenu extends CanvasPanel {
       { id: 'takes', label: 'Takes' },
       ...CATEGORIES,
       { id: 'library', label: 'Library' },
+      { id: 'images', label: 'Images' },
       { id: 'settings', label: 'Settings' },
     ];
-    const perRow = 6;
+    const perRow = 7;
     const tabW = (W - PAD * 2 - 8 * (perRow - 1)) / perRow;
     tabs.forEach((t, i) => {
       const x = PAD + (i % perRow) * (tabW + 8);
       const y = 76 + Math.floor(i / perRow) * 60;
-      this.button(`tab-${t.id}`, t.label, x, y, tabW, 52, () => this.setTab(t.id), { active: this.tab === t.id, size: 20 });
+      this.button(`tab-${t.id}`, t.label, x, y, tabW, 52, () => this.setTab(t.id), { active: this.tab === t.id, size: 18 });
     });
 
     let gridTop = 208;
@@ -158,7 +163,24 @@ export class VRMenu extends CanvasPanel {
     return top + 112;
   }
 
+  private async loadImages(): Promise<void> {
+    try {
+      this.storedImages = await listImages();
+    } catch {
+      this.storedImages = [];
+    }
+    this.invalidate();
+  }
+
   private tiles(): Tile[] {
+    if (this.tab === 'images') {
+      return this.storedImages.map((img) => ({
+        key: `img-${img.id}`,
+        title: img.name,
+        thumb: imageUrl(img),
+        item: { title: img.name, kind: 'prop', asset: { source: 'image', id: img.id, aspect: img.width / img.height } },
+      }));
+    }
     if (this.tab !== 'library') {
       return BUNDLED.filter((i) => i.category === this.tab).map((i) => ({ key: i.key, title: i.title, thumb: i.thumb, item: i }));
     }

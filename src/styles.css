@@ -239,3 +239,7 @@ a:focus-visible, #viewport canvas:focus-visible { outline: 2px solid var(--focus
 .settings summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 8px; }
 .settings summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .settings[open] summary { margin-bottom: 8px; }
+
+#viewport.drop-target::after { content: 'Drop images to add them as reference planes'; position: absolute; inset: 12px; border: 2px dashed var(--accent); border-radius: 12px; display: grid; place-items: center; color: var(--accent); font-weight: 600; background: rgb(0 0 0 / 0.35); pointer-events: none; }
+.tile-del { background: none; border: 0; cursor: pointer; padding: 2px 4px; }
+.tile-del:hover, .tile-del:focus-visible { color: var(--danger); }

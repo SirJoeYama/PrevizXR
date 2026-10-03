@@ -77,6 +77,8 @@ export class SceneSync {
   /** Editor-only parts inside object content (light bulbs, loading boxes), hidden in clean renders. */
   readonly inlineHelpers = new Set<Object3D>();
   private readonly loading = new Set<Promise<void>>();
+  /** Roots of objects marked "hide in renders" (reference images and the like). */
+  readonly renderHidden = new Set<Object3D>();
   private readonly selectionBounds = new Box3();
   /** Precise bounds (skinned meshes included), refreshed every frame for the selected object. */
   private readonly selectionBox = new Box3Helper(this.selectionBounds, 0xffb547);
@@ -192,6 +194,8 @@ export class SceneSync {
         drawLabel(e.label, obj.name, obj.color);
       }
       this.updatePath(e, obj);
+      if (obj.hiddenInRenders) this.renderHidden.add(e.root);
+      else this.renderHidden.delete(e.root);
       this.applyPose(obj);
     }
     for (const [id, e] of this.entries) if (!seen.has(id)) this.destroy(e);
@@ -209,6 +213,7 @@ export class SceneSync {
 
   private destroy(e: Entry): void {
     this.setContent(e, null);
+    this.renderHidden.delete(e.root);
     e.root.removeFromParent();
     e.label.removeFromParent();
     e.label.material.map?.dispose();

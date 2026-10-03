@@ -75,6 +75,11 @@ function parseObject(o: unknown, i: number): SceneObject {
   if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) throw new SceneFormatError(`${where} has an invalid color.`);
 
   const obj = structuredClone(o) as unknown as SceneObject;
+  if (obj.asset.source === 'image') {
+    const a = obj.asset as { aspect: unknown };
+    if (typeof a.aspect !== 'number' || !(a.aspect > 0) || !Number.isFinite(a.aspect)) a.aspect = 1;
+  }
+  if (obj.hiddenInRenders !== undefined) obj.hiddenInRenders = !!obj.hiddenInRenders;
   if (obj.actor) {
     const a = obj.actor;
     if (!ACTOR_CLIPS.includes(a.clip)) a.clip = 'idle';

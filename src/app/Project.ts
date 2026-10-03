@@ -3,6 +3,7 @@ import { createScene, type SceneDoc } from '../model/scene';
 import { parseScene, serializeScene } from '../model/serialize';
 import { deleteScene, listScenes, loadScene, saveScene, type SceneSummary } from '../storage/sceneStore';
 import { deleteTakesOfScene } from '../storage/takeStore';
+import { embedImages, restoreEmbeddedImages } from '../assets/imageLibrary';
 import { downloadText, slug } from './download';
 
 const LAST_SCENE_KEY = 'previzxr.lastScene';
@@ -70,7 +71,9 @@ export class Project {
 
   /** Imports a scene file. A scene with the same id as an existing one gets a fresh id so nothing is overwritten. */
   async importFile(file: File): Promise<void> {
-    const doc = parseScene(await file.text());
+    const text = await file.text();
+    const doc = parseScene(text);
+    await restoreEmbeddedImages((JSON.parse(text) as { embeddedImages?: unknown }).embeddedImages);
     const existing = await listScenes();
     if (existing.some((s) => s.id === doc.id)) doc.id = crypto.randomUUID();
     await this.flush();
@@ -78,9 +81,14 @@ export class Project {
     this.scheduleSave();
   }
 
-  exportFile(): void {
+  /** Downloads the scene as JSON, with its reference images embedded so the file is self-contained. */
+  async exportFile(): Promise<void> {
     const doc = this.editor.doc;
-    downloadText(`${slug(doc.name) || 'scene'}.previz.json`, serializeScene(doc));
+    const embeddedImages = await embedImages(doc);
+    const text = Object.keys(embeddedImages).length
+      ? JSON.stringify({ ...JSON.parse(serializeScene(doc)), embeddedImages }, null, 2)
+      : serializeScene(doc);
+    downloadText(`${slug(doc.name) || 'scene'}.previz.json`, text);
   }
 
   async flush(): Promise<void> {
