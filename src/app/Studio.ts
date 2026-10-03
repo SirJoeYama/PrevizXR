@@ -5,6 +5,7 @@ import { CameraView } from '../desktop/CameraView';
 import { DesktopEditor } from '../desktop/DesktopEditor';
 import { Editor } from '../model/Editor';
 import { SceneSync } from '../sync/SceneSync';
+import { sampleKeyframes } from '../model/take';
 import type { TakeRenderer } from '../render/TakeRenderer';
 import { XREditor } from '../xr/XREditor';
 import type { App } from './App';
@@ -75,9 +76,24 @@ export class Studio {
       }
     });
 
+    // Preview plays everything that moves: actor and object paths, and the keyframed camera path.
+    let previewingPath = false;
+    const previewCameraPath = () => {
+      const { keyframes, lens } = this.editor.doc.camera;
+      const on = this.playback.playing && !this.takes.busy && keyframes.length >= 2;
+      if (on) {
+        const focus = lens.focusMode === 'manual' ? lens.focusDistance : null;
+        this.camera.setOverride({ ...sampleKeyframes(keyframes, this.playback.time), focus }, true);
+      } else if (previewingPath) {
+        this.camera.setOverride(null);
+      }
+      previewingPath = on;
+    };
+
     app.onFrame((dt) => {
       this.xrEditor.update(dt);
       this.playback.tick(dt);
+      previewCameraPath();
       this.takes.update(dt);
       this.sync.tick(dt);
       this.camera.update(dt);

@@ -13,6 +13,7 @@ import {
   PerspectiveCamera,
   Plane,
   PlaneGeometry,
+  type Quaternion,
   Raycaster,
   SRGBColorSpace,
   Vector2,
@@ -40,6 +41,8 @@ export const MONITOR_LEVELS: ReadonlyArray<[number, number]> = [
   [256, 4],
 ];
 const FRUSTUM_LENGTH = 1.2; // metres
+/** A monitor detached from the camera (VR/XR) floats at this multiple of its on-camera size. */
+const DETACHED_SCALE = 3;
 const AUTOFOCUS_INTERVAL = 0.1; // seconds (doubled in VR: raycasting skinned actors costs CPU)
 const floorPlane = new Plane(new Vector3(0, 1, 0), 0);
 
@@ -61,6 +64,11 @@ export class VirtualCamera {
   status: () => HudStatus | undefined = () => undefined;
   /** Pose and lens from a take being played back, instead of the model. */
   private override: CameraSample | null = null;
+  /** Keep autofocusing while overridden (previewing the keyframed path, which has no recorded focus). */
+  private overrideAutofocus = false;
+  /** The monitor (screen, frame and HUD); detachable in VR so it can be watched away from the camera. */
+  readonly monitorGroup = new Group();
+  private monitorDetached = false;
 
   private readonly monitor: Mesh<PlaneGeometry, MeshBasicMaterial>;
   private readonly overlay: Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -107,12 +115,12 @@ export class VirtualCamera {
     const monitorFrame = new Mesh(new BoxGeometry(1, 1, 0.01), housing);
     monitorFrame.position.z = -0.006;
     monitorFrame.raycast = () => {};
-    const monitorGroup = new Group();
+    const monitorGroup = this.monitorGroup;
     monitorGroup.name = 'Monitor';
+    monitorGroup.userData.helper = true;
     monitorGroup.add(monitorFrame, this.monitor, this.overlay);
-    monitorGroup.position.set(0, 0.17, 0.16);
-    monitorGroup.rotation.x = -0.3;
     this.body.add(monitorGroup);
+    this.placeMonitorOnBody();
     this.monitor.userData.frame = monitorFrame;
 
     const frustumGeo = new BufferGeometry();
@@ -123,6 +131,7 @@ export class VirtualCamera {
 
     app.scene.add(this.root);
     app.addEditorOnly(this.body);
+    app.addEditorOnly(monitorGroup); // also when detached from the body
     sync.registerRoot(CAMERA_ID, this.root);
     editor.subscribe((c) => c === 'doc' && this.apply());
     this.apply();
@@ -150,11 +159,41 @@ export class VirtualCamera {
     return this.override?.focal ?? this.rig.lens.focalLength;
   }
 
-  /** Shows a recorded camera sample (take playback); null returns to the model's camera. */
-  setOverride(sample: CameraSample | null): void {
+  /**
+   * Shows a camera sample instead of the model's camera (take playback, path preview); null returns to the model.
+   * With `autofocus`, focus keeps being measured (or taken from manual focus) instead of coming from the sample.
+   */
+  setOverride(sample: CameraSample | null, autofocus = false): void {
     this.override = sample;
-    if (sample) this.focusDistance = sample.focus;
+    this.overrideAutofocus = autofocus;
+    if (sample && !autofocus) this.focusDistance = sample.focus;
     this.apply();
+  }
+
+  get isMonitorDetached(): boolean {
+    return this.monitorDetached;
+  }
+
+  /** Floats the monitor in the world at a pose (larger, so it can be watched from a distance). */
+  detachMonitor(position: Vector3, quaternion: Quaternion): void {
+    this.monitorDetached = true;
+    this.app.scene.add(this.monitorGroup);
+    this.monitorGroup.position.copy(position);
+    this.monitorGroup.quaternion.copy(quaternion);
+    this.monitorGroup.scale.setScalar(DETACHED_SCALE);
+  }
+
+  /** Puts the monitor back on top of the camera. */
+  attachMonitor(): void {
+    this.monitorDetached = false;
+    this.body.add(this.monitorGroup);
+    this.placeMonitorOnBody();
+  }
+
+  private placeMonitorOnBody(): void {
+    this.monitorGroup.position.set(0, 0.17, 0.16);
+    this.monitorGroup.rotation.set(-0.3, 0, 0);
+    this.monitorGroup.scale.setScalar(1);
   }
 
   /** Pose and lens from the model, or from the playback override. */
@@ -188,7 +227,7 @@ export class VirtualCamera {
   /** Per frame: autofocus, HUD overlay and the on-body monitor. Call before the main render. */
   update(dt: number): void {
     this.focusTimer -= dt;
-    if (this.focusTimer <= 0 && !this.override) {
+    if (this.focusTimer <= 0 && (!this.override || this.overrideAutofocus)) {
       this.focusTimer = this.app.renderer.xr.isPresenting ? AUTOFOCUS_INTERVAL * 2 : AUTOFOCUS_INTERVAL;
       this.focusDistance = this.rig.lens.focusMode === 'manual' ? this.rig.lens.focusDistance : this.measureFocus();
     }

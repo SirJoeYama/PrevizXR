@@ -68,7 +68,7 @@ export class TopBar {
 
     this.undoBtn = iconButton('undo', 'Undo (Ctrl+Z)', () => editor.undo());
     this.redoBtn = iconButton('redo', 'Redo (Ctrl+Y)', () => editor.redo());
-    this.playBtn = el('button', { class: 'tb-btn', type: 'button', title: 'Preview actor paths and clips from the start (Space)', onclick: () => (takes.busy ? takes.stop() : playback.toggle()) });
+    this.playBtn = el('button', { class: 'tb-btn', type: 'button', title: 'Preview from the start: actor and object paths, clips and the camera path (Space)', onclick: () => (takes.busy ? takes.stop() : playback.toggle()) });
     this.recordBtn = el('button', { class: 'tb-btn record', type: 'button', title: 'Record a take: 3-second countdown, then the camera is captured (R)', onclick: () => takes.toggleRecord() });
     const renderBtn = el('button', { class: 'tb-btn', type: 'button', title: 'Render passes to video', onclick: actions.openRender }, icon('render'), el('span', { class: 'label', text: 'Render' }));
 

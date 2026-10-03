@@ -12,7 +12,7 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 
 ## Features
 
-- **Scene building** *(available now)*: four rigged humanoid actors with idle, walk, run and sit clips and waypoint paths you draw on the floor; blockout shapes (box, cylinder, wall, door frame, chair, table, car); 42 bundled furniture, street, vehicle, nature and building models; point and spot lights. Every object gets a flat ID color and a name label. Grab, move, rotate, scale, snap to floor, duplicate, delete, undo and redo, in VR and on desktop. Any object can follow a waypoint path (props and lights keep their height and orientation and turn at corners). Preview plays paths and clips from the start.
+- **Scene building** *(available now)*: four rigged humanoid actors with idle, walk, run and sit clips and waypoint paths you draw on the floor; blockout shapes (box, cylinder, wall, door frame, chair, table, car); 42 bundled furniture, street, vehicle, nature and building models; point and spot lights. Every object gets a flat ID color and a name label. Grab, move, rotate, scale, snap to floor, duplicate, delete, undo and redo, in VR and on desktop. Any object can follow a waypoint path (props and lights keep their height and orientation and turn at corners). Preview plays everything from the start: paths, clips and the keyframed camera path (the camera monitor shows the shot).
 - **Model library** *(available now)*: search and place any of the 2,292 [Poly by Google](https://poly.pizza/u/Poly%20by%20Google) models on Poly Pizza (CC-BY 3.0), loaded on demand. Attribution is tracked per scene in the Credits panel. See [ASSETS.md](ASSETS.md).
 - **Reference images** *(available now)*: import JPG, PNG or WebP storyboards, concept art or plates, and place them as floating picture planes you can grab, move, rotate and scale in VR. They are hidden from the camera monitor and renders by default (toggle **Hide in renders** in the inspector to use one as a backdrop). Images live in the browser's image library and are embedded in exported scene files.
 - **Scenes** *(available now)*: autosaved in the browser (IndexedDB), reopened on the next visit, and importable/exportable as `.previz.json` files.
@@ -69,7 +69,7 @@ Open http://localhost:5173.
 | `P` | Draw a path for the selected object: click the floor to add waypoints, `Esc` to finish |
 | `Ctrl+D` / `Delete` | Duplicate / delete |
 | `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | Undo / redo |
-| `Space` | Preview actor paths from the start, or stop |
+| `Space` | Preview from the start (paths, clips and the camera path), or stop |
 | `C` | Select the camera |
 | `V` | Look through the camera (letterboxed); drag to aim, `W` `A` `S` `D` / `Q` `E` to move, wheel to zoom, `V` or `Esc` to exit |
 | `M` | Show or hide the camera monitor in the viewport corner |
@@ -114,7 +114,7 @@ The **Cam path** tab builds a keyframed camera move. **Draw path** puts the came
 
 The menu's **Takes** tab records, plays and loops takes. The monitor shows the countdown, a red REC timer while recording, and the take name during playback.
 
-The menu's **Camera** tab has focal presets, sensor, aspect, fps, guides and focus, plus **Bring here** to fetch the camera. Grabbing the camera with grip rotates it freely, unlike props, which stay upright. The monitor on top of the camera shows exactly what it records.
+The menu's **Camera** tab has focal presets, sensor, aspect, fps, guides and focus, plus **Bring here** to fetch the camera. Grabbing the camera with grip rotates it freely, unlike props, which stay upright. The monitor on top of the camera shows exactly what it records. **Detach monitor** (Camera tab, or under the selected camera) floats it, three times larger, in front of you; grab it with the trigger or grip to place it, even during a preview, so you can watch the camera path play. **Attach monitor** puts it back.
 
 ### XR (passthrough)
 

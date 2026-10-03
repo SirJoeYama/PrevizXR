@@ -51,6 +51,9 @@ const ZOOM_SPEED = 1.2; // focal length ×e per second at full stick
 /** A grab only starts moving things once the hand has moved this far (so a click to select never nudges). */
 const DRAG_START_METRES = 0.01;
 const DRAG_START_RADIANS = (1.2 * Math.PI) / 180;
+/** A detached monitor appears this far in front of the eyes and this far below them. */
+const MONITOR_DISTANCE = 0.9;
+const MONITOR_DROP = 0.15;
 /** Go to: stand at least this far from the object. */
 const GO_TO_DISTANCE = 1.5;
 /** Where the camera sits on the right controller: slightly above and in front, looking along the ray. */
@@ -62,7 +65,7 @@ const floorPlane = new Plane(UP.clone(), 0);
 type Button = 'trigger' | 'squeeze' | 'pinch';
 
 interface Grab {
-  /** Scene object (or CAMERA_ID) being moved, or null for a camera keyframe. */
+  /** Scene object (or CAMERA_ID) being moved; null for a camera keyframe or the detached monitor (view-only, not in the scene). */
   id: string | null;
   /** Camera keyframe index being moved, or null. */
   key: number | null;
@@ -89,6 +92,8 @@ interface Hand {
   hitObject: string | null;
   /** Camera keyframe marker under the ray, if any. */
   hitKey: number | null;
+  /** The detached camera monitor is under the ray. */
+  hitMonitor: boolean;
   hitPoint: Vector3 | null;
   menuUv: Vector2 | null;
   floorPoint: Vector3 | null;
@@ -171,6 +176,8 @@ export class XREditor {
       sessionLabel: () => (app.xrSession.mode === 'ar' ? 'XR' : 'VR'),
       exitSession: () => void app.xrSession.exit(),
       importScene: () => void app.xrSession.exit().then(() => this.requestImport()),
+      isMonitorDetached: () => vcam.isMonitorDetached,
+      toggleMonitor: () => this.toggleMonitor(),
     });
     this.menu.mesh.visible = false;
     onPrefs(() => {
@@ -198,6 +205,7 @@ export class XREditor {
         grab: null,
         hitObject: null,
         hitKey: null,
+        hitMonitor: false,
         hitPoint: null,
         menuUv: null,
         floorPoint: null,
@@ -220,7 +228,10 @@ export class XREditor {
     });
     app.xrSession.addEventListener('change', () => {
       if (app.xrSession.presenting) this.menu.mesh.visible = true; // show the menu on entering VR
-      else this.releaseAll();
+      else {
+        this.releaseAll();
+        if (vcam.isMonitorDetached) vcam.attachMonitor();
+      }
     });
   }
 
@@ -393,6 +404,7 @@ export class XREditor {
     hand.menuUv = null;
     hand.hitObject = null;
     hand.hitKey = null;
+    hand.hitMonitor = false;
     hand.hitPoint = null;
     hand.floorPoint = this.raycaster.ray.intersectPlane(floorPlane, new Vector3());
     let dist = Infinity;
@@ -413,8 +425,13 @@ export class XREditor {
     if (!hand.menuUv && !hand.grab && this.holder !== hand) {
       const keyHit = this.keyPath.group.visible ? this.raycaster.intersectObject(this.keyPath.markers, true)[0] : undefined;
       const hit = this.raycaster.intersectObjects(this.sync.pickRoots, true)[0];
-      // Keys are small and sit on the path: prefer them when they are about as close as the object behind.
-      if (keyHit && (!hit || keyHit.distance <= hit.distance + 0.05)) {
+      const monitorHit = this.vcam.isMonitorDetached ? this.raycaster.intersectObject(this.vcam.monitorGroup, true)[0] : undefined;
+      if (monitorHit && (!hit || monitorHit.distance <= hit.distance) && (!keyHit || monitorHit.distance <= keyHit.distance)) {
+        hand.hitMonitor = true;
+        hand.hitPoint = monitorHit.point;
+        dist = monitorHit.distance;
+      } else if (keyHit && (!hit || keyHit.distance <= hit.distance + 0.05)) {
+        // Keys are small and sit on the path: prefer them when they are about as close as the object behind.
         hand.hitKey = this.keyPath.keyIndexOf(keyHit.object);
         hand.hitPoint = keyHit.point;
         dist = keyHit.distance;
@@ -428,7 +445,7 @@ export class XREditor {
     }
 
     const material = hand.line.material as LineBasicMaterial;
-    material.color.set(hand.menuUv ? 0xffffff : hand.hitKey !== null ? 0xffb547 : hand.hitObject ? 0x7cc4ff : 0xffb547);
+    material.color.set(hand.menuUv || hand.hitMonitor ? 0xffffff : hand.hitKey !== null ? 0xffb547 : hand.hitObject ? 0x7cc4ff : 0xffb547);
     hand.line.scale.z = Math.min(dist, RAY_LENGTH);
     const placing = this.pathMode && this.pathFor !== CAMERA_ID;
     const point = placing && !hand.menuUv ? hand.floorPoint : hand.hitPoint;
@@ -485,22 +502,24 @@ export class XREditor {
   }
 
   private canGrab(hand: Hand): boolean {
-    return !!hand.hitObject || hand.hitKey !== null || this.hands.some((h) => h !== hand && h.grab);
+    return !!hand.hitObject || hand.hitKey !== null || hand.hitMonitor || this.hands.some((h) => h !== hand && h.grab);
   }
 
   /** Grabs what the ray points at, or (second hand, while the other grabs an object) starts scaling it. */
   private startGrab(hand: Hand, button: Button, freeRotation: boolean): void {
     const other = this.hands.find((h) => h !== hand && h.grab)?.grab;
-    if (other?.id && other.id !== CAMERA_ID && hand.hitKey === null && (!hand.hitObject || hand.hitObject === other.id)) {
+    if (other?.id && other.id !== CAMERA_ID && hand.hitKey === null && !hand.hitMonitor && (!hand.hitObject || hand.hitObject === other.id)) {
       const root = this.sync.rootOf(other.id);
       if (root) this.scaling = { id: other.id, d0: this.handDistance(), s0: root.scale.clone(), hand, button };
       return;
     }
-    if (this.playback.playing || this.takes.busy) return;
     let target: Object3D | undefined;
     let id: string | null = null;
     const key = hand.hitKey;
-    if (key !== null) {
+    // The monitor can be moved any time (watching a preview is the point); scene edits wait for playback to end.
+    if (hand.hitMonitor) target = this.vcam.monitorGroup;
+    else if (this.playback.playing || this.takes.busy) return;
+    else if (key !== null) {
       target = this.keyPath.marker(key);
       this.menu.selectedKey = key;
     } else if (hand.hitObject) {
@@ -516,7 +535,7 @@ export class XREditor {
       target,
       button,
       offset: new Matrix4(),
-      free: freeRotation || id === CAMERA_ID || key !== null,
+      free: freeRotation || id === CAMERA_ID || key !== null || hand.hitMonitor,
       startQuat: new Quaternion(),
       startYaw: 0,
       twist: 0,
@@ -656,6 +675,21 @@ export class XREditor {
     this.q.setFromAxisAngle(UP, yaw);
     this.editor.setTransform(CAMERA_ID, { position: pos, rotation: this.q.toArray() as Transform['rotation'], scale: [1, 1, 1] });
     this.editor.select(CAMERA_ID);
+  }
+
+  /** Detaches the camera monitor in front of the user (grab it to move it), or puts it back on the camera. */
+  private toggleMonitor(): void {
+    if (this.vcam.isMonitorDetached) {
+      for (const h of this.hands) if (h.grab?.target === this.vcam.monitorGroup) this.releaseHand(h);
+      this.vcam.attachMonitor();
+    } else {
+      const head = this.v.setFromMatrixPosition(this.app.camera.matrixWorld);
+      const yaw = this.yawOf(this.app.camera.matrixWorld);
+      const pos = new Vector3(head.x - Math.sin(yaw) * MONITOR_DISTANCE, head.y - MONITOR_DROP, head.z - Math.cos(yaw) * MONITOR_DISTANCE);
+      this.q.setFromEuler(this.euler.set(-0.1, yaw, 0, 'YXZ'));
+      this.vcam.detachMonitor(pos, this.q);
+    }
+    this.menu.invalidate();
   }
 
   /** Moves the user next to an object (or the camera), turned to face it. */

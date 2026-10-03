@@ -32,6 +32,9 @@ export interface VRMenuHost {
   exitSession(): void;
   /** Leaves the session and asks for a scene file (file pickers can't open inside VR). */
   importScene(): void;
+  isMonitorDetached(): boolean;
+  /** Detaches the camera monitor to float in front of the user, or puts it back on the camera. */
+  toggleMonitor(): void;
 }
 
 const SAVE_STATUS = { saved: 'All changes saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Could not save' } as const;
@@ -354,7 +357,9 @@ export class VRMenu extends CanvasPanel {
     this.button('hold', holding ? 'Let go' : 'Hold camera', PAD, y, bw3, 52, () => this.host.toggleHoldCamera(), { active: holding, size: 22 });
     this.button('bring', 'Bring here', PAD + bw3 + 8, y, bw3, 52, () => this.host.bringCamera(), { disabled: holding, size: 22 });
     this.button('selcam', 'Select', PAD + (bw3 + 8) * 2, y, bw3, 52, () => this.editor.select('camera'), { active: this.editor.cameraSelected, size: 22 });
-    this.text('Stick click: hold/let go · stick up/down: zoom · Cam path tab: keyframes', W / 2, y + 76, { size: 18, color: PANEL_COLORS.muted, align: 'center' });
+    const detached = this.host.isMonitorDetached();
+    this.button('monitor', detached ? 'Attach monitor' : 'Detach monitor', PAD, y + 64, inner, 52, () => this.host.toggleMonitor(), { active: detached, size: 22 });
+    this.text('Stick click: hold/let go · stick up/down: zoom · Cam path tab: keyframes', W / 2, y + 140, { size: 18, color: PANEL_COLORS.muted, align: 'center' });
   }
 
   private drawSettings(top: number): void {
@@ -740,11 +745,13 @@ export class VRMenu extends CanvasPanel {
       this.button('selhold', holding ? 'Let go' : 'Hold camera', PAD, row(0) + 52, bw, 50, () => this.host.toggleHoldCamera(), { active: holding, size: 22 });
       this.button('selbring', 'Bring here', PAD + bw + 8, row(0) + 52, bw, 50, () => this.host.bringCamera(), { disabled: holding, size: 22 });
       this.button('selpath', drawing ? 'Done drawing' : 'Draw path', PAD + (bw + 8) * 2, row(0) + 52, bw, 50, () => this.host.setPathMode(!drawing), { active: drawing, disabled: this.takes.busy && !drawing, size: 22 });
+      const detached = this.host.isMonitorDetached();
+      this.button('selmonitor', detached ? 'Attach monitor' : 'Detach monitor', PAD, row(1) + 54, bw, 50, () => this.host.toggleMonitor(), { active: detached, size: 20 });
       this.text(
-        drawing ? 'Trigger drops a keyframe. Edit keys in the Cam path tab.' : 'Hold the trigger to drag it, or hold it with a stick click.',
-        W / 2,
-        row(1) + 80,
-        { size: 20, color: PANEL_COLORS.muted, align: 'center', maxWidth: inner },
+        drawing ? 'Trigger drops a keyframe. Edit keys in Cam path.' : 'Hold the trigger to drag it, or a stick click to hold it.',
+        PAD + bw + 16,
+        row(1) + 79,
+        { size: 18, color: PANEL_COLORS.muted, maxWidth: inner - bw - 16 },
       );
     } else {
       this.text('Point and pull the trigger to select; hold it to drag.', W / 2, row(0) + 30, { size: 22, color: PANEL_COLORS.muted, align: 'center', maxWidth: inner });
