@@ -16,6 +16,7 @@ import type { App } from '../app/App';
 import { clampFocal } from '../camera/lens';
 import type { VirtualCamera } from '../camera/VirtualCamera';
 import type { Playback } from '../app/Playback';
+import type { Takes } from '../app/Takes';
 import { spawn, type Spawnable } from '../app/spawn';
 import { readTransform, snapToFloor } from '../interaction/ops';
 import type { Editor } from '../model/Editor';
@@ -84,6 +85,7 @@ export class XREditor {
   private scaling: { id: string; d0: number; s0: Vector3 } | null = null;
   /** The hand holding the virtual camera, if any. */
   private holder: Hand | null = null;
+  private readonly takes: Takes;
   private turnArmed = true;
 
   private readonly m = new Matrix4();
@@ -100,8 +102,10 @@ export class XREditor {
     private readonly sync: SceneSync,
     private readonly playback: Playback,
     private readonly vcam: VirtualCamera,
+    takes: Takes,
   ) {
-    this.menu = new VRMenu(editor, playback, {
+    this.takes = takes;
+    this.menu = new VRMenu(editor, playback, takes, {
       isHoldingCamera: () => this.holder !== null,
       toggleHoldCamera: () => this.toggleHold(this.hands.find((h) => h.slot.handedness === 'right') ?? this.hands[1]),
       bringCamera: () => this.bringCamera(),
@@ -178,7 +182,9 @@ export class XREditor {
     if (down(STICK_PRESS) && !isLeft) this.toggleHold(hand);
     if (down(SQUEEZE) && !holding) this.onSqueeze(hand, pressed(TRIGGER));
     if (up(SQUEEZE)) this.onRelease(hand);
-    if (down(TRIGGER) && !hand.grab) this.onTrigger(hand);
+    // Holding the camera, the trigger is the record button (unless pointing at the menu).
+    if (down(TRIGGER) && holding && !hand.menuUv) this.takes.toggleRecord();
+    else if (down(TRIGGER) && !hand.grab) this.onTrigger(hand);
     if (down(BUTTON_LOWER)) {
       if (isLeft) this.editor.undo();
       else if (this.editor.selectedId) snapToFloor(this.editor, this.sync, this.editor.selectedId);
@@ -267,7 +273,7 @@ export class XREditor {
       this.scaling = { id: other.grab.id, d0: this.handDistance(), s0: root.scale.clone() };
       return;
     }
-    if (!hand.hitObject || this.playback.playing) return;
+    if (!hand.hitObject || this.playback.playing || this.takes.busy) return;
     const root = this.sync.rootOf(hand.hitObject);
     if (!root) return;
     this.editor.select(hand.hitObject);
@@ -350,7 +356,7 @@ export class XREditor {
       this.holder = null;
       this.editor.commit();
     } else {
-      if (hand.grab || this.playback.playing) return;
+      if (hand.grab || this.playback.playing || this.takes.state === 'playing') return;
       this.holder = hand;
       this.editor.begin();
       this.editor.select(CAMERA_ID);

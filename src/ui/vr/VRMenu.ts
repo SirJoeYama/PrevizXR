@@ -1,6 +1,8 @@
 import { BUNDLED, CATEGORIES, type Category } from '../../assets/catalog';
 import { loadPolyLibrary, polyAssetRef, polyThumbUrl, searchPoly, type PolyEntry } from '../../assets/polyLibrary';
 import type { Playback } from '../../app/Playback';
+import type { Takes } from '../../app/Takes';
+import { formatTime } from '../../camera/guides';
 import type { Spawnable } from '../../app/spawn';
 import type { Editor } from '../../model/Editor';
 import { ASPECT_IDS, FOCAL_PRESETS, FPS_OPTIONS, SENSORS, clampFocal, horizontalFovDeg, verticalFovDeg, type SensorId } from '../../camera/lens';
@@ -18,7 +20,7 @@ export interface VRMenuHost {
   focusDistance(): number | null;
 }
 
-type Tab = Category | 'library' | 'camera';
+type Tab = Category | 'library' | 'camera' | 'takes';
 
 const W = 768;
 const H = 1280;
@@ -45,19 +47,24 @@ export class VRMenu extends CanvasPanel {
   private libraryError = '';
   private readonly images = new Map<string, HTMLImageElement>();
   private shownFocus: number | null | undefined;
+  private takesPage = 0;
 
   constructor(
     private readonly editor: Editor,
     private readonly playback: Playback,
+    private readonly takes: Takes,
     private readonly host: VRMenuHost,
   ) {
     super(W, H, 0.3);
     this.mesh.name = 'VRMenu';
     editor.subscribe(() => this.invalidate());
     playback.onChange(() => this.invalidate());
+    takes.onChange(() => this.invalidate());
   }
 
   override update(): void {
+    // Countdown and timers tick without events: redraw every frame while busy on the Takes tab.
+    if (this.tab === 'takes' && this.takes.busy) this.invalidate();
     if (this.tab === 'camera') {
       // Autofocus changes without model edits: redraw when the readout would change.
       const f = this.host.focusDistance();
@@ -80,17 +87,25 @@ export class VRMenu extends CanvasPanel {
     this.text('PrevizXR', PAD, 40, { size: 30, weight: 700, color: PANEL_COLORS.active });
     this.text(this.editor.doc.name, W - PAD, 40, { size: 22, color: PANEL_COLORS.muted, align: 'right', maxWidth: 420 });
 
-    const tabs: Array<{ id: Tab; label: string }> = [{ id: 'camera', label: 'Camera' }, ...CATEGORIES, { id: 'library', label: 'Library' }];
-    const tabW = (W - PAD * 2 - 8 * 4) / 5;
+    const tabs: Array<{ id: Tab; label: string }> = [
+      { id: 'camera', label: 'Camera' },
+      { id: 'takes', label: 'Takes' },
+      ...CATEGORIES,
+      { id: 'library', label: 'Library' },
+    ];
+    const perRow = 6;
+    const tabW = (W - PAD * 2 - 8 * (perRow - 1)) / perRow;
     tabs.forEach((t, i) => {
-      const x = PAD + (i % 5) * (tabW + 8);
-      const y = 76 + Math.floor(i / 5) * 60;
-      this.button(`tab-${t.id}`, t.label, x, y, tabW, 52, () => this.setTab(t.id), { active: this.tab === t.id, size: 22 });
+      const x = PAD + (i % perRow) * (tabW + 8);
+      const y = 76 + Math.floor(i / perRow) * 60;
+      this.button(`tab-${t.id}`, t.label, x, y, tabW, 52, () => this.setTab(t.id), { active: this.tab === t.id, size: 20 });
     });
 
     let gridTop = 208;
     if (this.tab === 'camera') {
       this.drawCamera(gridTop);
+    } else if (this.tab === 'takes') {
+      this.drawTakes(gridTop);
     } else {
       if (this.tab === 'library') gridTop = this.drawLibraryPresets(gridTop);
       this.drawGrid(this.tiles(), gridTop, 836 - gridTop);
@@ -256,6 +271,45 @@ export class VRMenu extends CanvasPanel {
     this.button('bring', 'Bring here', PAD + bw3 + 8, y, bw3, 52, () => this.host.bringCamera(), { disabled: holding, size: 22 });
     this.button('selcam', 'Select', PAD + (bw3 + 8) * 2, y, bw3, 52, () => this.editor.select('camera'), { active: this.editor.cameraSelected, size: 22 });
     this.text('Right stick click: hold/let go · stick up/down: zoom', W / 2, y + 76, { size: 18, color: PANEL_COLORS.muted, align: 'center' });
+  }
+
+  private drawTakes(top: number): void {
+    const t = this.takes;
+    const inner = W - PAD * 2;
+    const recLabel = t.state === 'countdown' ? 'Cancel' : t.state === 'recording' ? '■ Stop' : '● Record';
+    this.button('record', recLabel, PAD, top, inner * 0.55, 72, () => t.toggleRecord(), { active: t.state === 'recording' || t.state === 'countdown', size: 30 });
+    const status = t.status();
+    const line =
+      status?.countdown !== undefined
+        ? `Starting in ${Math.ceil(status.countdown)}…`
+        : status?.recording !== undefined
+          ? `Recording ${formatTime(status.recording)}`
+          : status?.playing
+            ? `▶ ${status.playing.name} ${formatTime(status.playing.time)}`
+            : `${this.editor.doc.camera.lens.fps} fps · ${t.list.length} take${t.list.length === 1 ? '' : 's'}`;
+    this.text(line, PAD + inner * 0.55 + 16, top + 36, { size: 24, maxWidth: inner * 0.45 - 16, color: t.state === 'recording' ? '#ff6b6b' : PANEL_COLORS.text });
+    this.text('Holding the camera, the trigger also starts and stops recording.', PAD, top + 100, { size: 19, color: PANEL_COLORS.muted });
+
+    const bw = (inner - 8) / 2;
+    this.button('stopplay', '■ Stop playback', PAD, top + 124, bw, 52, () => t.stop(), { disabled: t.state !== 'playing', size: 22 });
+    this.button('loop', t.loop ? 'Loop: on' : 'Loop: off', PAD + bw + 8, top + 124, bw, 52, () => (t.loop = !t.loop), { active: t.loop, size: 22 });
+
+    const rowsTop = top + 196;
+    const rowH = 62;
+    const perPage = 6;
+    const pages = Math.max(1, Math.ceil(t.list.length / perPage));
+    this.takesPage = Math.min(this.takesPage, pages - 1);
+    if (!t.list.length) this.text('No takes yet.', W / 2, rowsTop + 40, { align: 'center', color: PANEL_COLORS.muted });
+    t.list.slice(this.takesPage * perPage, (this.takesPage + 1) * perPage).forEach((take, i) => {
+      const y = rowsTop + i * rowH;
+      const playing = t.state === 'playing' && t.current?.id === take.id;
+      this.button(`take-${take.id}`, `${playing ? '■' : '▶'}  ${take.name}`, PAD, y, inner * 0.62, rowH - 10, () => (playing ? t.stop() : void t.play(take.id)), { active: playing, size: 24 });
+      this.text(`${take.duration.toFixed(1)} s · ${take.fps} fps${take.source === 'keyframed' ? ' · path' : ''}`, W - PAD, y + (rowH - 10) / 2, { size: 20, align: 'right', color: PANEL_COLORS.muted });
+    });
+    const py = rowsTop + perPage * rowH + 4;
+    this.button('tprev', '◀', PAD, py, 120, 48, () => this.takesPage--, { disabled: this.takesPage === 0 });
+    this.text(`${this.takesPage + 1} / ${pages}`, W / 2, py + 24, { align: 'center', color: PANEL_COLORS.muted });
+    this.button('tnext', '▶', W - PAD - 120, py, 120, 48, () => this.takesPage++, { disabled: this.takesPage >= pages - 1 });
   }
 
   private drawSelection(top: number): void {

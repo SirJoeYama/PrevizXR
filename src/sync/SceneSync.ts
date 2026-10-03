@@ -26,7 +26,7 @@ import {
 } from 'three';
 import type { AssetLoader } from '../assets/AssetLoader';
 import type { Editor } from '../model/Editor';
-import { samplePath } from '../model/motion';
+import { objectPoseAt, type ObjectPose } from '../model/motion';
 import { assetKey, type ActorClip, type SceneObject } from '../model/scene';
 import { drawLabel, makeLabel } from './labels';
 
@@ -60,7 +60,6 @@ export const LIGHT_SPAWN_INTENSITY = { point: 30, spot: 120, directional: 2 };
 const placeholderGeo = new EdgesGeometry(new BoxGeometry(0.5, 0.5, 0.5).translate(0, 0.25, 0));
 const placeholderMat = new LineBasicMaterial({ color: 0x8b93a5 });
 const errorMat = new LineBasicMaterial({ color: 0xff4d4d });
-const UP = new Vector3(0, 1, 0);
 const tmpBox = new Box3();
 
 /**
@@ -81,6 +80,8 @@ export class SceneSync {
   /** Precise bounds (skinned meshes included), refreshed every frame for the selected object. */
   private readonly selectionBox = new Box3Helper(this.selectionBounds, 0xffb547);
   private previewTime: number | null = null;
+  /** Poses from a take being played back, by object id (overrides model and preview). */
+  private takePoses: Record<string, ObjectPose> | null = null;
 
   constructor(
     private readonly editor: Editor,
@@ -134,10 +135,19 @@ export class SceneSync {
     for (const obj of this.editor.doc.objects) this.applyPose(obj);
   }
 
+  /**
+   * Shows recorded poses (take playback). Objects missing from the take keep their scene pose.
+   * Pass null to go back to the model.
+   */
+  setTakePoses(poses: Record<string, ObjectPose> | null): void {
+    this.takePoses = poses;
+    for (const obj of this.editor.doc.objects) this.applyPose(obj);
+  }
+
   /** Per-frame update while editing (live clips, labels, selection box). */
   tick(dt: number): void {
     for (const e of this.entries.values()) {
-      if (e.mixer && this.previewTime === null) e.mixer.update(dt);
+      if (e.mixer && this.previewTime === null && !this.takePoses) e.mixer.update(dt);
       this.placeLabel(e);
     }
     const sel = this.editor.selectedId ? this.entries.get(this.editor.selectedId)?.root : undefined;
@@ -284,22 +294,15 @@ export class SceneSync {
   private applyPose(obj: SceneObject): void {
     const e = this.entries.get(obj.id);
     if (!e) return;
+    const recorded = this.takePoses?.[obj.id];
+    const pose = recorded ?? (this.previewTime !== null ? objectPoseAt(obj, this.previewTime) : null);
     const { position, rotation, scale } = obj.transform;
-    e.root.position.fromArray(position);
-    e.root.quaternion.fromArray(rotation);
-    e.root.scale.fromArray(scale);
-
-    const actor = obj.actor;
-    if (!actor) return;
-    let clip: ActorClip = actor.clip;
-    if (this.previewTime !== null && actor.waypoints.length) {
-      const s = samplePath(position, actor, this.previewTime);
-      e.root.position.fromArray(s.position);
-      if (s.heading !== null) e.root.quaternion.setFromAxisAngle(UP, s.heading);
-      if (!s.moving && (clip === 'walk' || clip === 'run')) clip = 'idle';
-    }
-    this.playClip(e, clip);
-    if (this.previewTime !== null) e.mixer?.setTime(this.previewTime);
+    e.root.position.fromArray(pose?.p ?? position);
+    e.root.quaternion.fromArray(pose?.q ?? rotation);
+    e.root.scale.fromArray(pose?.s ?? scale);
+    if (!obj.actor) return;
+    this.playClip(e, pose?.clip ?? obj.actor.clip);
+    if (pose?.t !== undefined) e.mixer?.setTime(pose.t);
   }
 
   private playClip(e: Entry, clip: ActorClip): void {

@@ -6,6 +6,7 @@ import { CreditsPanel } from './CreditsPanel';
 import { el, section } from './dom';
 import { InspectorPanel } from './InspectorPanel';
 import { ScenePanel } from './ScenePanel';
+import { CameraPathPanel, TakesPanel } from './TakesPanel';
 
 const SUPPORT_TEXT: Record<XRSupport, string> = {
   checking: 'Checking…',
@@ -48,6 +49,8 @@ export class Sidebar {
       new AddPanel((item) => studio.spawnDesktop(item)).root,
       new InspectorPanel(editor, studio.sync, studio.desktopEditor).root,
       new CameraPanel(editor, studio.camera, studio.cameraView).root,
+      new TakesPanel(studio.takes).root,
+      new CameraPathPanel(editor, studio.takes).root,
       section('Preview', 'sb-preview', el('div', { class: 'row' }, this.playButton, this.timeEl)),
       new CreditsPanel(editor).root,
       section(
@@ -68,6 +71,7 @@ export class Sidebar {
           keys(['Ctrl', 'D'], 'duplicate · ', ['Del'], 'delete'),
           keys(['Ctrl', 'Z'], 'undo · ', ['Ctrl', 'Y'], 'redo · ', ['Space'], 'preview'),
           keys(['C'], 'select camera · ', ['V'], 'camera view · ', ['M'], 'monitor'),
+          keys(['R'], 'record take · ', ['K'], 'add path key · ', ['Space'], 'stop take'),
           el('li', { text: 'In camera view: drag to aim, WASD/QE to move, wheel to zoom' }),
         ),
       ),
@@ -83,6 +87,7 @@ export class Sidebar {
           el('li', { text: 'Left stick: move · Right stick: snap turn' }),
           el('li', { text: 'A: to floor · B: menu · X: undo · Y: redo' }),
           el('li', { text: 'Right stick click: hold the camera · stick up/down while holding: zoom' }),
+          el('li', { text: 'Trigger while holding the camera: record / stop a take' }),
         ),
       ),
     );

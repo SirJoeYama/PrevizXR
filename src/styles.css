@@ -192,3 +192,13 @@ kbd {
 .field .seg-btn { padding: 5px 2px; font-size: 12px; }
 .focus-row { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; }
 .checks { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+
+.btn.record { color: #ff6b6b; font-weight: 600; }
+.btn.record[aria-pressed='true'] { background: #a01c1c; border-color: #ff6b6b; color: #fff; }
+.take-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.take-list li { display: flex; align-items: center; gap: 4px; border-radius: 6px; }
+.take-list li.selected { background: var(--panel-2); }
+.take-list .play { color: var(--accent); }
+.take-meta { color: var(--muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.keys-list .input.num { width: 64px; flex: none; }
+.keys-list .take-meta:first-child { min-width: 14px; text-align: right; }

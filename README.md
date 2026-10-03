@@ -9,7 +9,7 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 ![PrevizXR screenshot](docs/screenshot.svg)
 <!-- Screenshot placeholder: replace docs/screenshot.svg with a real capture -->
 
-> **Status:** early development. Milestones 1–3 of 7 are done: scene building in VR and on desktop, a 2,000+ model library, and a virtual camera with real lens controls. See the [roadmap](#roadmap).
+> **Status:** early development. Milestones 1–4 of 7 are done: scene building in VR and on desktop, a 2,000+ model library, a virtual camera with real lens controls, and take recording and playback. See the [roadmap](#roadmap).
 
 ## Features
 
@@ -18,9 +18,11 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 - **Scenes** *(available now)*: autosaved in the browser (IndexedDB), reopened on the next visit, and importable/exportable as `.previz.json` files.
 - **Virtual camera** *(available now)*: a camera you hold in VR (it follows your right controller) or fly on desktop, with a live monitor on the camera body and a picture-in-picture monitor on desktop. Focal length from 14 to 135 mm (presets or continuous) gives the correct field of view for a Super 35 (24.89 × 18.66 mm) or full-frame (36 × 24 mm) sensor at 16:9, 9:16, 2.39:1 or 1:1. Also: 24/25/30 fps, autofocus on the frame centre or manual focus distance, and rule-of-thirds, safe-area and centre guides.
 
+- **Takes** *(available now)*: record a camera move with a 3-2-1 countdown, in VR (hold the camera and pull the trigger) or on desktop (fly the camera in camera view). Actors play their paths from the start while you record. Takes are captured at exactly the lens frame rate (24/25/30 fps), whatever the headset refresh rate, and stored per frame: camera position, rotation, focal length and focus distance, plus every object's transform and each actor's clip and clip time. Play takes back in the headset or on desktop. Smoothing (0–100%) is applied on playback without touching the raw take. Takes are saved in the browser and import/export as `.take.json`.
+- **Camera paths** *(available now)*: on desktop, build a keyframed dolly/crane move (smooth spline through keys, with rotation and focal length interpolated), preview it, and save it as a take.
+
 Planned:
 
-- **Takes:** record camera moves with a countdown and play them back in the headset, with optional path smoothing. Keyframed dolly/crane paths on desktop.
 - **Export passes:** clay, color_id, depth, normals and OpenPose (COCO-18), all at the same resolution and frame rate, encoded to H.264 MP4 with WebCodecs (or a PNG-sequence zip as a fallback). Plus the camera as JSON and as an animated glTF, bundled into one zip with a `manifest.json`.
 
 ## Setup
@@ -71,6 +73,9 @@ Open http://localhost:5173.
 | `C` | Select the camera |
 | `V` | Look through the camera (letterboxed); drag to aim, `W` `A` `S` `D` / `Q` `E` to move, wheel to zoom, `V` or `Esc` to exit |
 | `M` | Show or hide the camera monitor in the viewport corner |
+| `R` | Record a take (3-second countdown), or stop recording |
+| `K` | Add a camera path keyframe at the camera's current position |
+| `Space` | While a take plays or records: stop |
 
 Add objects from the **Add** panel in the sidebar: they appear on the floor at the centre of the view, facing you.
 
@@ -92,6 +97,9 @@ Add objects from the **Add** panel in the sidebar: they appear on the floor at t
 | **X** / **Y** | Undo / redo |
 | Right thumbstick click | Hold the camera in your right hand (it points where the controller points), or let go |
 | Right thumbstick up/down while holding | Zoom (focal length) |
+| Trigger while holding the camera | Record a take (3-2-1 countdown), or stop |
+
+The menu's **Takes** tab records, plays and loops takes. The monitor shows the countdown, a red REC timer while recording, and the take name during playback.
 
 The menu's **Camera** tab has focal presets, sensor, aspect, fps, guides and focus, plus **Bring here** to fetch the camera. Grabbing the camera with grip rotates it freely, unlike props, which stay upright. The monitor on top of the camera shows exactly what it records.
 
@@ -120,7 +128,7 @@ Tips:
 1. ✅ Vite + Three.js skeleton, desktop mode, Enter VR, Pages deploy
 2. ✅ Spawning and manipulating actors and props in VR and desktop; save/load; Poly by Google library
 3. ✅ Virtual camera with live monitor and lens controls
-4. Take recording and playback
+4. ✅ Take recording and playback
 5. Render mode with clay, color_id and depth to MP4
 6. Normals and pose passes, camera export, zip bundle
 7. Polish: Quest performance (72 fps), docs, menu accessibility, hand tracking

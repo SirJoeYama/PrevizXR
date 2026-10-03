@@ -1,10 +1,29 @@
 import type { LensSettings } from '../model/scene';
 import { SENSORS } from './lens';
 
+/** Recording/playback state shown on every monitor. */
+export interface HudStatus {
+  /** Seconds left before recording starts. */
+  countdown?: number;
+  /** Seconds recorded so far. */
+  recording?: number;
+  /** Take being played back and its current time. */
+  playing?: { name: string; time: number };
+}
+
 export interface GuideInfo {
   lens: LensSettings;
   /** Live focus distance in metres; null when nothing is under the frame centre. */
   focus: number | null;
+  /** Focal length actually in use (differs from the lens settings while a take plays back). */
+  focal?: number;
+  status?: HudStatus;
+}
+
+export function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds - m * 60;
+  return `${String(m).padStart(2, '0')}:${s.toFixed(1).padStart(4, '0')}`;
 }
 
 /**
@@ -59,7 +78,7 @@ export function drawGuides(ctx: CanvasRenderingContext2D, x: number, y: number, 
   ctx.font = `600 ${size}px system-ui, sans-serif`;
   ctx.textBaseline = 'bottom';
   const pad = 6 * unit;
-  const left = `${Math.round(lens.focalLength)}mm · ${SENSORS[lens.sensor].label} · ${lens.aspect} · ${lens.fps}fps`;
+  const left = `${Math.round(info.focal ?? lens.focalLength)}mm · ${SENSORS[lens.sensor].label} · ${lens.aspect} · ${lens.fps}fps`;
   const focus = info.focus === null ? '∞' : `${info.focus.toFixed(info.focus < 10 ? 2 : 1)} m`;
   const right = `${lens.focusMode === 'auto' ? 'AF' : 'MF'} ${focus}`;
   for (const [text, align, tx] of [
@@ -73,6 +92,37 @@ export function drawGuides(ctx: CanvasRenderingContext2D, x: number, y: number, 
     ctx.fillRect(bx, y + h - pad - size - 3 * unit, tw + 6 * unit, size + 6 * unit);
     ctx.fillStyle = '#fff';
     ctx.fillText(text, tx, y + h - pad);
+  }
+
+  const st = info.status;
+  if (st?.recording !== undefined || st?.playing) {
+    const label = st.playing ? `▶ ${st.playing.name}  ${formatTime(st.playing.time)}` : `REC  ${formatTime(st.recording!)}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(label).width;
+    const top = y + pad;
+    const boxH = size + 8 * unit;
+    const dot = st.playing ? 0 : boxH * 0.5;
+    ctx.fillStyle = st.playing ? 'rgba(0,0,0,0.55)' : 'rgba(150,0,0,0.75)';
+    ctx.fillRect(x + pad, top, tw + dot + 12 * unit, boxH);
+    if (!st.playing) {
+      ctx.fillStyle = '#ff3b3b';
+      ctx.beginPath();
+      ctx.arc(x + pad + 6 * unit + dot / 2, top + boxH / 2, dot / 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, x + pad + 6 * unit + dot, top + boxH / 2 + unit);
+  }
+  if (st?.countdown !== undefined) {
+    const n = Math.max(1, Math.ceil(st.countdown));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${Math.round(h * 0.4)}px system-ui, sans-serif`;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillText(String(n), x + w / 2 + 3 * unit, y + h / 2 + 3 * unit);
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillText(String(n), x + w / 2, y + h / 2);
   }
   ctx.restore();
 }

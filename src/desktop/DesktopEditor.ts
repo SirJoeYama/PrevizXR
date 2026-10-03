@@ -22,6 +22,8 @@ export class DesktopEditor {
   pathMode = false;
   /** Returns true while another mode (camera view) owns the mouse: no picking, no gizmo. */
   suspended: () => boolean = () => false;
+  /** What Space does (preview by default; Studio routes it to take playback when busy). */
+  onSpace: () => void = () => this.playback.toggle();
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
   private down: { x: number; y: number; onGizmo: boolean } | null = null;
@@ -184,7 +186,7 @@ export class DesktopEditor {
     } else if (key === 'p') {
       this.setPathMode(!this.pathMode);
     } else if (key === ' ') {
-      this.playback.toggle();
+      this.onSpace();
     } else if (key === 'escape') {
       if (this.pathMode) this.setPathMode(false);
       else this.editor.select(null);

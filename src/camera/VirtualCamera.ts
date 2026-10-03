@@ -23,7 +23,8 @@ import type { App } from '../app/App';
 import type { Editor } from '../model/Editor';
 import { CAMERA_ID, type CameraRig } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
-import { drawGuides } from './guides';
+import type { CameraSample } from '../model/take';
+import { drawGuides, type HudStatus } from './guides';
 import { ASPECTS, verticalFovDeg } from './lens';
 
 const MONITOR_SIZE = 0.2; // metres, longest side
@@ -46,6 +47,10 @@ export class VirtualCamera {
   focusDistance: number | null = null;
   /** Render the on-body monitor (always on in VR; optional on desktop). */
   monitorEnabled = true;
+  /** Recording/playback state for the monitor HUD. */
+  status: () => HudStatus | undefined = () => undefined;
+  /** Pose and lens from a take being played back, instead of the model. */
+  private override: CameraSample | null = null;
 
   private readonly monitor: Mesh<PlaneGeometry, MeshBasicMaterial>;
   private readonly overlay: Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -116,17 +121,31 @@ export class VirtualCamera {
     return this.editor.doc.camera;
   }
 
-  /** Pose and lens from the model. */
+  /** Focal length in use right now (the take's while one plays back). */
+  get focalLength(): number {
+    return this.override?.focal ?? this.rig.lens.focalLength;
+  }
+
+  /** Shows a recorded camera sample (take playback); null returns to the model's camera. */
+  setOverride(sample: CameraSample | null): void {
+    this.override = sample;
+    if (sample) this.focusDistance = sample.focus;
+    this.apply();
+  }
+
+  /** Pose and lens from the model, or from the playback override. */
   apply(): void {
     const { transform, lens } = this.rig;
-    this.root.position.fromArray(transform.position);
-    this.root.quaternion.fromArray(transform.rotation);
-    const sig = `${lens.focalLength}|${lens.sensor}|${lens.aspect}`;
+    const o = this.override;
+    this.root.position.fromArray(o?.p ?? transform.position);
+    this.root.quaternion.fromArray(o?.q ?? transform.rotation);
+    const focal = this.focalLength;
+    const sig = `${focal}|${lens.sensor}|${lens.aspect}`;
     if (sig === this.lensSig) return;
     this.lensSig = sig;
 
     const aspect = ASPECTS[lens.aspect];
-    this.camera.fov = verticalFovDeg(lens.focalLength, lens.sensor, lens.aspect);
+    this.camera.fov = verticalFovDeg(focal, lens.sensor, lens.aspect);
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
 
@@ -144,7 +163,7 @@ export class VirtualCamera {
   /** Per frame: autofocus, HUD overlay and the on-body monitor. Call before the main render. */
   update(dt: number): void {
     this.focusTimer -= dt;
-    if (this.focusTimer <= 0) {
+    if (this.focusTimer <= 0 && !this.override) {
       this.focusTimer = AUTOFOCUS_INTERVAL;
       this.focusDistance = this.rig.lens.focusMode === 'manual' ? this.rig.lens.focusDistance : this.measureFocus();
     }
@@ -172,13 +191,14 @@ export class VirtualCamera {
   private drawOverlay(): void {
     const lens = this.rig.lens;
     const focus = this.focusDistance === null ? '∞' : this.focusDistance.toFixed(2);
-    const sig = JSON.stringify(lens) + focus;
+    const status = this.status();
+    const sig = JSON.stringify(lens) + focus + this.focalLength.toFixed(1) + JSON.stringify(status, (_k, v) => (typeof v === 'number' ? v.toFixed(1) : v));
     if (sig === this.overlaySig) return;
     this.overlaySig = sig;
     const c = this.overlayCanvas;
     const ctx = c.getContext('2d')!;
     ctx.clearRect(0, 0, c.width, c.height);
-    drawGuides(ctx, 0, 0, c.width, c.height, { lens, focus: this.focusDistance });
+    drawGuides(ctx, 0, 0, c.width, c.height, { lens, focus: this.focusDistance, focal: this.focalLength, status });
     this.overlayTexture.needsUpdate = true;
   }
 

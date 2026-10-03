@@ -28,6 +28,8 @@ interface Rect {
 export class CameraView {
   pip = true;
   throughCamera = false;
+  /** Returns true while a take plays back: the camera can't be flown then. */
+  locked: () => boolean = () => false;
   private readonly overlay: HTMLCanvasElement;
   private readonly keys = new Set<string>();
   private dragging: { x: number; y: number } | null = null;
@@ -76,6 +78,7 @@ export class CameraView {
       (e) => {
         if (!this.throughCamera) return;
         e.preventDefault();
+        if (this.locked()) return;
         this.beginEdit();
         this.editor.updateLens((l) => (l.focalLength = Math.round(clampFocal(l.focalLength * Math.exp(-e.deltaY * 0.001)) * 10) / 10), true);
         this.scheduleCommit();
@@ -138,6 +141,7 @@ export class CameraView {
   }
 
   private look(dx: number, dy: number): void {
+    if (this.locked()) return;
     this.beginEdit();
     const t = this.currentTransform();
     this.euler.setFromQuaternion(this.vcam.root.quaternion.fromArray(t.rotation), 'YXZ');
@@ -149,7 +153,7 @@ export class CameraView {
   }
 
   private fly(dt: number): void {
-    if (!this.throughCamera || this.keys.size === 0) return;
+    if (!this.throughCamera || this.keys.size === 0 || this.locked()) return;
     const k = this.keys;
     const f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
     const r = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
@@ -258,7 +262,7 @@ export class CameraView {
     ctx.clearRect(0, 0, c.width, c.height);
     if (!rect) return;
     ctx.scale(dpr, dpr);
-    drawGuides(ctx, rect.x, rect.y, rect.w, rect.h, { lens: this.editor.doc.camera.lens, focus: this.vcam.focusDistance });
+    drawGuides(ctx, rect.x, rect.y, rect.w, rect.h, { lens: this.editor.doc.camera.lens, focus: this.vcam.focusDistance, focal: this.vcam.focalLength, status: this.vcam.status() });
     if (this.throughCamera) {
       ctx.font = '600 12px system-ui, sans-serif';
       ctx.fillStyle = 'rgba(255,255,255,0.7)';

@@ -21,6 +21,12 @@ export function section(title: string, id: string, ...children: Child[]): HTMLEl
   return el('section', { class: 'section', 'aria-labelledby': id }, el('h2', { id, text: title }), ...children);
 }
 
+/** True when a key event comes from a text field (shortcuts should be ignored). */
+export function isTyping(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement | null;
+  return !!t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+}
+
 /** Sets an input's value unless the user is editing it. */
 export function setValue(input: HTMLInputElement | HTMLSelectElement, value: string): void {
   if (document.activeElement !== input && input.value !== value) input.value = value;

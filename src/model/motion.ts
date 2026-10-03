@@ -1,4 +1,5 @@
-import type { ActorSettings, Vec3 } from './scene';
+import { quatFromYaw } from './math';
+import type { ActorClip, ActorSettings, Quat, SceneObject, Vec3 } from './scene';
 
 export interface PathSample {
   /** World position on the floor path. */
@@ -63,4 +64,35 @@ export function yawBetween(a: Vec3, b: Vec3): number {
 
 function dist(a: Vec3, b: Vec3): number {
   return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+}
+
+/** Pose of one object at scene time t: what preview, recording and rendering all agree on. */
+export interface ObjectPose {
+  p: Vec3;
+  q: Quat;
+  s: Vec3;
+  /** Actors only: active clip and its playback time in seconds. */
+  clip?: ActorClip;
+  t?: number;
+}
+
+/**
+ * Deterministic pose at time t. Actors with waypoints follow their path facing the direction of travel,
+ * and switch from walk/run to idle when they arrive. Everything else stays at its scene transform.
+ */
+export function objectPoseAt(obj: SceneObject, t: number): ObjectPose {
+  const { position, rotation, scale } = obj.transform;
+  const pose: ObjectPose = { p: [...position], q: [...rotation], s: [...scale] };
+  const actor = obj.actor;
+  if (!actor) return pose;
+  let clip = actor.clip;
+  if (actor.waypoints.length) {
+    const s = samplePath(position, actor, t);
+    pose.p = s.position;
+    if (s.heading !== null) pose.q = quatFromYaw(s.heading);
+    if (!s.moving && t > 0 && (clip === 'walk' || clip === 'run')) clip = 'idle';
+  }
+  pose.clip = clip;
+  pose.t = t;
+  return pose;
 }

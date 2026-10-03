@@ -1,5 +1,5 @@
 import { ASPECTS, FPS_OPTIONS, SENSORS, clampFocal } from '../camera/lens';
-import { ACTOR_CLIPS, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type SceneDoc, type SceneObject } from './scene';
+import { ACTOR_CLIPS, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
 
 export class SceneFormatError extends Error {}
 
@@ -45,6 +45,17 @@ function parseCamera(c: unknown): CameraRig {
   if (typeof l.focusDistance === 'number' && l.focusDistance > 0) lens.focusDistance = l.focusDistance;
   if (isObj(l.guides)) {
     for (const k of ['thirds', 'safe', 'center'] as const) if (typeof l.guides[k] === 'boolean') lens.guides[k] = l.guides[k];
+  }
+  if (Array.isArray(c.keyframes)) {
+    rig.keyframes = c.keyframes
+      .filter((k): k is Record<string, unknown> => isObj(k) && typeof k.time === 'number' && k.time >= 0 && isNums(k.position, 3) && isNums(k.rotation, 4))
+      .map((k) => ({
+        time: k.time as number,
+        position: [...(k.position as Vec3)] as Vec3,
+        rotation: [...(k.rotation as Quat)] as Quat,
+        focalLength: typeof k.focalLength === 'number' ? clampFocal(k.focalLength) : lens.focalLength,
+      }))
+      .sort((a, b) => a.time - b.time);
   }
   return rig;
 }

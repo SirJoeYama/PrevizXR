@@ -2,6 +2,8 @@ import type { Editor } from '../model/Editor';
 import { createScene, type SceneDoc } from '../model/scene';
 import { parseScene, serializeScene } from '../model/serialize';
 import { deleteScene, listScenes, loadScene, saveScene, type SceneSummary } from '../storage/sceneStore';
+import { deleteTakesOfScene } from '../storage/takeStore';
+import { downloadText, slug } from './download';
 
 const LAST_SCENE_KEY = 'previzxr.lastScene';
 const AUTOSAVE_DELAY = 800;
@@ -62,6 +64,7 @@ export class Project {
 
   async remove(id: string): Promise<void> {
     await deleteScene(id);
+    await deleteTakesOfScene(id);
     if (id === this.editor.doc.id) this.newScene();
   }
 
@@ -77,12 +80,7 @@ export class Project {
 
   exportFile(): void {
     const doc = this.editor.doc;
-    const blob = new Blob([serializeScene(doc)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${slug(doc.name) || 'scene'}.previz.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    downloadText(`${slug(doc.name) || 'scene'}.previz.json`, serializeScene(doc));
   }
 
   async flush(): Promise<void> {
@@ -123,10 +121,6 @@ export class Project {
     this.status = s;
     for (const l of this.listeners) l();
   }
-}
-
-function slug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 function readLast(): string | null {

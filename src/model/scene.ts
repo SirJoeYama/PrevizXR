@@ -97,10 +97,21 @@ export interface LensSettings {
   guides: Guides;
 }
 
+/** A keyframe of the dolly/crane camera path (desktop keyframed mode). */
+export interface CameraKey {
+  /** Seconds from the start of the shot. */
+  time: number;
+  position: Vec3;
+  rotation: Quat;
+  focalLength: number;
+}
+
 /** The virtual camera. Looks down its local -Z axis, +Y up. */
 export interface CameraRig {
   transform: Transform;
   lens: LensSettings;
+  /** Keyframed path, sorted by time. Empty unless the user builds one on desktop. */
+  keyframes: CameraKey[];
 }
 
 export interface SceneDoc {
@@ -145,7 +156,7 @@ export function defaultLens(): LensSettings {
 
 /** Eye height, 4 m back from the origin, looking toward it. */
 export function defaultCamera(): CameraRig {
-  return { transform: { position: [0, 1.6, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, lens: defaultLens() };
+  return { transform: { position: [0, 1.6, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, lens: defaultLens(), keyframes: [] };
 }
 
 export const DEFAULT_SPEED: Record<ActorClip, number> = { idle: 0, walk: 1.3, run: 3.5, sit: 0 };
