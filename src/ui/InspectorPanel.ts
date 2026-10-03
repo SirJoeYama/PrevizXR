@@ -259,7 +259,7 @@ export class InspectorPanel {
       el('div', { class: 'row three' }, pathBtn, undoPoint, clearBtn),
       el('label', { class: 'check' }, loop, ' Loop path back to start'),
       el('div', { class: 'row' }, smoothBtn),
-      el('p', { class: 'hint', text: 'Click a waypoint or curve handle in the view to drag it. Paths play back with Preview (Space).' }),
+      el('p', { class: 'hint', text: 'Drag a waypoint or curve handle in the view (Shift: up/down). Paths play back with Preview (Space).' }),
     );
   }
 

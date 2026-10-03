@@ -1,4 +1,4 @@
-import { Box3, Plane, Raycaster, Vector2, Vector3 } from 'three';
+import { Box3, Plane, Raycaster, Vector2, Vector3, type Object3D } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { App } from '../app/App';
 import type { Playback } from '../app/Playback';
@@ -14,12 +14,15 @@ import { announce } from '../ui/announce';
 export type GizmoMode = 'translate' | 'rotate' | 'scale';
 
 const CLICK_SLOP_PX = 5;
-const floorPlane = new Plane(new Vector3(0, 1, 0), 0);
+const UP = new Vector3(0, 1, 0);
+const floorPlane = new Plane(UP.clone(), 0);
+/** Below this view steepness a horizontal drag plane is too grazing to use; drag vertically instead. */
+const MIN_PLANE_GRAZE = 0.15;
 
 /**
  * Desktop scene editing: click to select, TransformControls gizmo, keyboard shortcuts,
- * waypoint drawing (click the floor) while path mode is on, and Bézier path editing: click a waypoint,
- * handle or camera key to move it with the gizmo.
+ * waypoint drawing (click the floor) while path mode is on, and Bézier path editing: drag a waypoint,
+ * handle or camera key directly (across the ground; Shift: up and down), or click it and use the gizmo.
  */
 export class DesktopEditor {
   readonly gizmo: TransformControls;
@@ -37,6 +40,9 @@ export class DesktopEditor {
   private activePath: PathPointRef | null = null;
   /** Gizmo mode for objects; path points always translate. */
   private userMode: GizmoMode = 'translate';
+  /** A path point being dragged directly with the mouse. */
+  private drag: { ref: PathPointRef; plane: Plane; offset: Vector3; pointerId: number } | null = null;
+  private hovering = false;
 
   constructor(
     private readonly app: App,
@@ -82,6 +88,11 @@ export class DesktopEditor {
     playback.onChange(() => this.attach());
     app.xrSession.addEventListener('change', () => this.attach());
 
+    // Capture phase: a press on a path point must reach us before the orbit controls and the gizmo.
+    dom.addEventListener('pointerdown', (e) => this.startPointDrag(e), { capture: true });
+    dom.addEventListener('pointermove', (e) => this.onPointerMove(e));
+    dom.addEventListener('pointerup', (e) => this.endPointDrag(e), { capture: true });
+    dom.addEventListener('pointercancel', (e) => this.endPointDrag(e), { capture: true });
     dom.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       this.down = { x: e.clientX, y: e.clientY, onGizmo: this.gizmo.axis !== null };
@@ -170,13 +181,7 @@ export class DesktopEditor {
   private attach(): void {
     const id = this.editor.selectedId;
     const ref = this.activePath;
-    const root = ref
-      ? ref.owner === CAMERA_ID && ref.part === 'anchor'
-        ? this.keyPath.marker(ref.index)
-        : this.pathHandles.objectFor(ref)
-      : id
-        ? this.sync.rootOf(id)
-        : undefined;
+    const root = ref ? this.pointObject(ref) : id ? this.sync.rootOf(id) : undefined;
     const usable = root && !this.playback.playing && !this.app.xrSession.presenting && !this.suspended();
     if (usable) {
       if (this.gizmo.object !== root) this.gizmo.attach(root);
@@ -185,10 +190,86 @@ export class DesktopEditor {
     }
   }
 
-  private onClick(e: PointerEvent): void {
+  /** The 3D object standing for a path point (a handle dot, or a camera key marker). */
+  private pointObject(ref: PathPointRef): Object3D | undefined {
+    return ref.owner === CAMERA_ID && ref.part === 'anchor' ? this.keyPath.marker(ref.index) : this.pathHandles.objectFor(ref);
+  }
+
+  private setRay(e: PointerEvent): void {
     const rect = this.app.renderer.domElement.getBoundingClientRect();
     this.ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(this.ndc, this.app.camera);
+  }
+
+  /** Path point under the ray (waypoints and handles of the selected path, then camera keys). */
+  private pickPathPoint(): PathPointRef | null {
+    const pathHit = this.raycaster.intersectObject(this.pathHandles.pickables, true)[0];
+    const keyHit = this.raycaster.intersectObject(this.keyPath.markers, true)[0];
+    if (pathHit && (!keyHit || pathHit.distance <= keyHit.distance)) return this.pathHandles.refOf(pathHit.object);
+    const keyIndex = keyHit ? this.keyPath.keyIndexOf(keyHit.object) : null;
+    return keyIndex === null ? null : { owner: CAMERA_ID, index: keyIndex, part: 'anchor' };
+  }
+
+  /** Press on a path point: drag it across a horizontal plane at its height (Shift: a vertical plane facing the view). */
+  private startPointDrag(e: PointerEvent): void {
+    if (e.button !== 0 || this.pathMode || this.suspended() || this.playback.playing || this.app.xrSession.presenting) return;
+    if (this.gizmo.dragging || this.gizmo.axis !== null) return; // the gizmo's own arrows win
+    this.setRay(e);
+    const ref = this.pickPathPoint();
+    if (!ref) return;
+    e.stopImmediatePropagation(); // keep the orbit controls and the gizmo out of this press
+    if (ref.owner === CAMERA_ID) this.editor.select(CAMERA_ID);
+    this.setActivePath(ref);
+    const target = this.pointObject(ref);
+    if (!target) return;
+    const p = target.getWorldPosition(new Vector3());
+    const plane = new Plane();
+    if (e.shiftKey || Math.abs(this.raycaster.ray.direction.y) < MIN_PLANE_GRAZE) {
+      const n = this.raycaster.ray.direction.clone().setY(0);
+      if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
+      plane.setFromNormalAndCoplanarPoint(n.normalize(), p);
+    } else {
+      plane.setFromNormalAndCoplanarPoint(UP, p);
+    }
+    const hit = this.raycaster.ray.intersectPlane(plane, new Vector3());
+    if (!hit) return;
+    this.drag = { ref, plane, offset: p.sub(hit), pointerId: e.pointerId };
+    this.app.renderer.domElement.setPointerCapture(e.pointerId);
+    this.editor.begin();
+  }
+
+  private onPointerMove(e: PointerEvent): void {
+    const drag = this.drag;
+    if (drag) {
+      this.setRay(e);
+      const hit = this.raycaster.ray.intersectPlane(drag.plane, new Vector3());
+      if (!hit) return;
+      const p = hit.add(drag.offset).toArray() as Vec3;
+      this.editor.transient((d) => movePathPoint(d, drag.ref, p));
+      return;
+    }
+    // Hover feedback: a grab cursor over draggable path points.
+    if (e.buttons || this.pathMode || this.suspended()) return;
+    this.setRay(e);
+    const over = this.pickPathPoint() !== null;
+    if (over !== this.hovering) {
+      this.hovering = over;
+      this.app.renderer.domElement.style.cursor = over ? 'grab' : '';
+    }
+  }
+
+  private endPointDrag(e: PointerEvent): void {
+    if (!this.drag || e.pointerId !== this.drag.pointerId) return;
+    e.stopImmediatePropagation();
+    const dom = this.app.renderer.domElement;
+    if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
+    this.drag = null;
+    this.down = null;
+    this.editor.commit();
+  }
+
+  private onClick(e: PointerEvent): void {
+    this.setRay(e);
 
     if (this.pathMode) {
       const sel = this.editor.selected;
@@ -198,16 +279,10 @@ export class DesktopEditor {
     }
 
     // Path points (waypoints, handles, camera keys) sit on top of objects: try them first.
-    const pathHit = this.raycaster.intersectObject(this.pathHandles.pickables, true)[0];
-    const keyHit = this.raycaster.intersectObject(this.keyPath.markers, true)[0];
-    if (pathHit && (!keyHit || pathHit.distance <= keyHit.distance)) {
-      this.setActivePath(this.pathHandles.refOf(pathHit.object));
-      return;
-    }
-    const keyIndex = keyHit ? this.keyPath.keyIndexOf(keyHit.object) : null;
-    if (keyIndex !== null) {
-      this.editor.select(CAMERA_ID);
-      this.setActivePath({ owner: CAMERA_ID, index: keyIndex, part: 'anchor' });
+    const ref = this.pickPathPoint();
+    if (ref) {
+      if (ref.owner === CAMERA_ID) this.editor.select(CAMERA_ID);
+      this.setActivePath(ref);
       return;
     }
     this.setActivePath(null);

@@ -194,7 +194,7 @@ export class CameraPathPanel {
       el('div', { class: 'row' }, el('button', { class: 'btn', type: 'button', text: '+ Key from camera', title: 'Add a keyframe at the camera (K)', onclick: () => this.addKey() })),
       this.list,
       el('div', { class: 'row' }, this.previewBtn, this.saveBtn, this.smoothBtn),
-      el('p', { class: 'hint', text: 'Select the camera, then click a key marker or curve handle in the view to drag it.' }),
+      el('p', { class: 'hint', text: 'Select the camera, then drag a key marker or curve handle in the view (Shift: up/down).' }),
       this.error,
     );
     editor.subscribe((c) => c === 'doc' && this.render());

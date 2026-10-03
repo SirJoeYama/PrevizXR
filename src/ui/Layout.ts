@@ -218,7 +218,7 @@ function helpContent(): HTMLElement {
       keyRow(['Del'], 'Delete'),
       keyRow(['Ctrl', 'Z'], 'Undo · Ctrl+Y redo'),
       keyRow(['P'], 'Draw a path for the selection · Esc ends'),
-      keyRow(['Click'], 'A waypoint or curve handle: drag it with the gizmo · Esc ends'),
+      keyRow(['Drag'], 'A waypoint or curve handle: moves it (Shift: up/down) · click for the gizmo'),
       keyRow(['Ctrl', 'V'], 'Paste an image as a reference plane'),
     ]),
     table('Shots', [
