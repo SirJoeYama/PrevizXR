@@ -1,7 +1,7 @@
 import { MENU_SIZES, onPrefs, prefs, setPrefs, type MenuSize } from '../app/prefs';
 import type { Studio } from '../app/Studio';
 import { formatTime } from '../camera/guides';
-import type { XRSupport } from '../xr/XRSessionManager';
+import type { XRMode, XRSupport } from '../xr/XRSessionManager';
 import { el } from './dom';
 import { icon, type IconName } from './icons';
 import { popoverButton } from './popover';
@@ -33,6 +33,7 @@ export class TopBar {
   private readonly playBtn: HTMLButtonElement;
   private readonly recordBtn: HTMLButtonElement;
   private readonly vrBtn: HTMLButtonElement;
+  private readonly xrBtn: HTMLButtonElement;
 
   constructor(
     private readonly studio: Studio,
@@ -72,7 +73,13 @@ export class TopBar {
     const renderBtn = el('button', { class: 'tb-btn', type: 'button', title: 'Render passes to video', onclick: actions.openRender }, icon('render'), el('span', { class: 'label', text: 'Render' }));
 
     const settings = popoverButton(iconButton('settings', 'Settings'), { label: 'VR settings', content: () => this.settingsContent() });
-    this.vrBtn = el('button', { class: 'tb-btn primary', type: 'button', onclick: () => void this.toggleVr() }, icon('vr'), el('span', { class: 'label', text: 'Enter VR' }));
+    this.vrBtn = el('button', { class: 'tb-btn primary', type: 'button', onclick: () => void this.toggleXr('vr') }, icon('vr'), el('span', { class: 'label', text: 'Enter VR' }));
+    this.xrBtn = el(
+      'button',
+      { class: 'tb-btn', type: 'button', title: 'Enter mixed reality: the scene in your room, with passthrough', hidden: true, onclick: () => void this.toggleXr('ar') },
+      icon('vr'),
+      el('span', { class: 'label', text: 'Enter XR' }),
+    );
 
     this.root = el(
       'header',
@@ -87,7 +94,7 @@ export class TopBar {
         sceneMenu,
       ),
       el('div', { class: 'tb-group center' }, this.undoBtn, this.redoBtn, el('span', { class: 'tb-sep', 'aria-hidden': 'true' }), this.playBtn, this.recordBtn, renderBtn),
-      el('div', { class: 'tb-group right' }, iconButton('help', 'Shortcuts and controls (?)', actions.openHelp), settings, this.vrBtn, iconButton('panelRight', 'Show or hide the properties panel', actions.toggleRight)),
+      el('div', { class: 'tb-group right' }, iconButton('help', 'Shortcuts and controls (?)', actions.openHelp), settings, this.xrBtn, this.vrBtn, iconButton('panelRight', 'Show or hide the properties panel', actions.toggleRight)),
     );
 
     editor.subscribe(() => this.refresh());
@@ -125,18 +132,22 @@ export class TopBar {
     this.recordBtn.setAttribute('aria-pressed', String(rec));
     this.recordBtn.classList.toggle('live', rec);
 
-    const { support, presenting } = app.xrSession;
-    this.vrBtn.disabled = support !== 'supported';
-    this.vrBtn.title = VR_UNAVAILABLE[support] ?? (presenting ? 'Leave VR' : 'Enter VR on the headset');
-    (this.vrBtn.querySelector('.label') as HTMLElement).textContent = presenting ? 'Exit VR' : 'Enter VR';
+    const { support, arSupport, presenting, mode } = app.xrSession;
+    const label = mode === 'ar' ? 'XR' : 'VR';
+    this.vrBtn.disabled = !presenting && support !== 'supported';
+    this.vrBtn.title = presenting ? `Leave ${label}` : (VR_UNAVAILABLE[support] ?? 'Enter VR on the headset');
+    (this.vrBtn.querySelector('.label') as HTMLElement).textContent = presenting ? `Exit ${label}` : 'Enter VR';
+    this.xrBtn.hidden = presenting || arSupport !== 'supported';
   }
 
-  private async toggleVr(): Promise<void> {
+  /** Enters VR or XR (passthrough), or leaves the running session. */
+  private async toggleXr(mode: XRMode): Promise<void> {
+    const btn = mode === 'ar' ? this.xrBtn : this.vrBtn;
     try {
-      await this.studio.app.xrSession.toggle();
+      await this.studio.app.xrSession.toggle(mode);
     } catch (err) {
-      console.warn('Could not start the VR session', err);
-      this.vrBtn.title = `Could not start VR: ${(err as Error).message}`;
+      console.warn(`Could not start the ${mode.toUpperCase()} session`, err);
+      btn.title = `Could not start ${mode === 'ar' ? 'XR' : 'VR'}: ${(err as Error).message}`;
     }
   }
 

@@ -179,7 +179,12 @@ export class App {
     for (const cb of this.frameCallbacks) cb(dt, time, frame);
 
     if (this.renderer.xr.isPresenting) {
+      // Passthrough: the real floor replaces the virtual one (the grid stays to show the stage).
+      // Three.js clears to transparent for alpha-blend sessions; the monitor still renders the floor.
+      const passthrough = this.xrSession.mode === 'ar';
+      if (passthrough) this.floor.visible = false;
       this.renderer.render(this.scene, this.camera);
+      if (passthrough) this.floor.visible = true;
       return;
     }
     if (this.mainRender) this.mainRender();

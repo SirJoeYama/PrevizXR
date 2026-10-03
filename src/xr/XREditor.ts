@@ -19,6 +19,7 @@ import { clampFocal } from '../camera/lens';
 import type { KeyframePath } from '../camera/KeyframePath';
 import type { VirtualCamera } from '../camera/VirtualCamera';
 import type { Playback } from '../app/Playback';
+import type { Project } from '../app/Project';
 import { MENU_SIZES, dominantHand, onPrefs, prefs } from '../app/prefs';
 import type { Takes } from '../app/Takes';
 import { spawn, type Spawnable } from '../app/spawn';
@@ -98,7 +99,9 @@ interface Hand {
   hoverId: string | null;
 }
 
-const MENU_ON_CONTROLLER = { position: new Vector3(0, 0.12, -0.06), rotationX: -Math.PI / 5 };
+/** The menu leans back this much on the off-hand controller, with its bottom edge this far above and ahead of the grip. */
+const MENU_TILT = -Math.PI / 5;
+const MENU_CLEARANCE = { above: 0.07, ahead: 0.02 };
 /** With tracked hands the menu floats in front of the user: this far ahead and this far below the eyes. */
 const HAND_MENU_DISTANCE = 0.45;
 const HAND_MENU_DROP = 0.18;
@@ -128,6 +131,8 @@ export class XREditor {
   private holder: Hand | null = null;
   private readonly takes: Takes;
   private turnArmed = true;
+  /** Called after leaving the session for Import, so the page can show a file picker (it can't open in VR). */
+  requestImport: () => void = () => {};
 
   private readonly m = new Matrix4();
   private readonly m2 = new Matrix4();
@@ -146,9 +151,10 @@ export class XREditor {
     private readonly vcam: VirtualCamera,
     takes: Takes,
     private readonly keyPath: KeyframePath,
+    project: Project,
   ) {
     this.takes = takes;
-    this.menu = new VRMenu(editor, playback, takes, {
+    this.menu = new VRMenu(editor, playback, takes, project, {
       isHoldingCamera: () => this.holder !== null,
       toggleHoldCamera: () => this.toggleHold(this.dominant() ?? this.hands[1]),
       bringCamera: () => this.bringCamera(),
@@ -162,10 +168,14 @@ export class XREditor {
         if (editor.selectedId) snapToFloor(editor, sync, editor.selectedId);
       },
       goTo: (id) => this.goTo(id),
+      sessionLabel: () => (app.xrSession.mode === 'ar' ? 'XR' : 'VR'),
+      exitSession: () => void app.xrSession.exit(),
+      importScene: () => void app.xrSession.exit().then(() => this.requestImport()),
     });
     this.menu.mesh.visible = false;
     onPrefs(() => {
       this.menu.mesh.scale.setScalar(MENU_SIZES[prefs.menuSize]);
+      if (this.menu.mesh.parent && this.menu.mesh.parent !== app.scene) this.placeMenuOnController();
       this.menu.invalidate();
     });
     this.menu.mesh.scale.setScalar(MENU_SIZES[prefs.menuSize]);
@@ -253,13 +263,22 @@ export class XREditor {
     if (off) {
       if (mesh.parent !== off.slot.grip) {
         off.slot.grip.add(mesh);
-        mesh.position.copy(MENU_ON_CONTROLLER.position);
-        mesh.rotation.set(MENU_ON_CONTROLLER.rotationX, 0, 0);
+        this.placeMenuOnController();
       }
     } else if (mesh.parent && mesh.parent !== this.app.scene) {
       mesh.removeFromParent();
       mesh.visible = false;
     }
+  }
+
+  /** Tilts the menu back and lifts it so its bottom edge clears the controller, whatever the menu size. */
+  private placeMenuOnController(): void {
+    const mesh = this.menu.mesh;
+    mesh.geometry.computeBoundingBox();
+    const half = mesh.geometry.boundingBox!.max.y * mesh.scale.y;
+    // The panel's local up axis after tilting about X is (0, cos, sin); its centre sits half a height along it.
+    mesh.position.set(0, MENU_CLEARANCE.above + half * Math.cos(MENU_TILT), -MENU_CLEARANCE.ahead + half * Math.sin(MENU_TILT));
+    mesh.rotation.set(MENU_TILT, 0, 0);
   }
 
   /** Shows the floating menu in front of the user (tracked hands), or hides it. */

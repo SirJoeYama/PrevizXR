@@ -2,6 +2,8 @@ import { BUNDLED, CATEGORIES, type Category } from '../../assets/catalog';
 import { imageUrl, listImages, onImagesChange, type StoredImage } from '../../assets/imageLibrary';
 import { loadPolyLibrary, polyAssetRef, polyThumbUrl, searchPoly, type PolyEntry } from '../../assets/polyLibrary';
 import type { Playback } from '../../app/Playback';
+import type { Project } from '../../app/Project';
+import type { SceneSummary } from '../../storage/sceneStore';
 import type { Takes } from '../../app/Takes';
 import { MENU_SIZES, prefs, setPrefs, type MenuSize } from '../../app/prefs';
 import { formatTime } from '../../camera/guides';
@@ -25,7 +27,14 @@ export interface VRMenuHost {
   monitorQuality(): number;
   /** Moves the user next to an object (or the camera), facing it. */
   goTo(id: string): void;
+  /** 'VR' or 'XR' (passthrough), for the exit button. */
+  sessionLabel(): string;
+  exitSession(): void;
+  /** Leaves the session and asks for a scene file (file pickers can't open inside VR). */
+  importScene(): void;
 }
+
+const SAVE_STATUS = { saved: 'All changes saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Could not save' } as const;
 
 type Tab = Category | 'library' | 'images' | 'scene' | 'camera' | 'path' | 'takes' | 'settings';
 /** Tabs that are not object categories under Add. */
@@ -67,16 +76,23 @@ export class VRMenu extends CanvasPanel {
   private shownSelection: string | null = null;
   /** Camera keyframe picked in the Cam path list (its marker is highlighted in the world). */
   selectedKey: number | null = null;
+  /** Scene tab: the outliner, or the list of saved scenes to open. */
+  private sceneView: 'objects' | 'open' = 'objects';
+  private savedScenes: SceneSummary[] | null = null;
+  private openPage = 0;
+  private fileNote = '';
 
   constructor(
     private readonly editor: Editor,
     private readonly playback: Playback,
     private readonly takes: Takes,
+    private readonly project: Project,
     private readonly host: VRMenuHost,
   ) {
     super(W, H, 0.3);
     this.mesh.name = 'VRMenu';
     editor.subscribe(() => this.invalidate());
+    project.onStatus(() => this.invalidate());
     playback.onChange(() => this.invalidate());
     takes.onChange(() => this.invalidate());
     onImagesChange(() => void this.loadImages());
@@ -112,8 +128,10 @@ export class VRMenu extends CanvasPanel {
 
     this.text('PrevizXR', PAD, 40, { size: 30, weight: 700, color: PANEL_COLORS.active });
     const fps = Math.round(this.host.fps());
-    this.text(`${fps} fps`, W - PAD, 40, { size: 22, align: 'right', color: fps > 0 && fps < 66 ? PANEL_COLORS.danger : PANEL_COLORS.muted });
-    this.text(this.editor.doc.name, W - PAD - 110, 40, { size: 22, color: PANEL_COLORS.muted, align: 'right', maxWidth: 380 });
+    const exitW = 150;
+    this.button('exit', `Exit ${this.host.sessionLabel()}`, W - PAD - exitW, 16, exitW, 48, () => this.host.exitSession(), { danger: true, size: 22 });
+    this.text(`${fps} fps`, W - PAD - exitW - 14, 40, { size: 22, align: 'right', color: fps > 0 && fps < 66 ? PANEL_COLORS.danger : PANEL_COLORS.muted });
+    this.text(this.editor.doc.name, W - PAD - exitW - 110, 40, { size: 22, color: PANEL_COLORS.muted, align: 'right', maxWidth: 260 });
 
     // Primary tabs; "Add" opens the object categories as a second row.
     const isAdd = !MAIN_TABS.includes(this.tab);
@@ -433,9 +451,39 @@ export class VRMenu extends CanvasPanel {
 
   /** Outliner: the camera and every object; pick one to select it. */
   private drawScene(top: number): void {
+    // Scene files: new, save, open, export, import.
+    const inner = W - PAD * 2;
+    const fw = (inner - 32) / 5;
+    const files: Array<[string, string, () => void, boolean?]> = [
+      ['fnew', 'New', () => {
+        this.project.newScene();
+        this.fileNote = 'New scene. The previous one is under Open.';
+      }],
+      ['fsave', 'Save', () => {
+        void this.project.flush().then(() => this.note('Saved in this browser.'));
+      }],
+      ['fopen', 'Open', () => this.showSavedScenes(), this.sceneView === 'open'],
+      ['fexport', 'Export', () => {
+        void this.project.exportFile().then(() => this.note('Exported to Downloads.'));
+      }],
+      ['fimport', 'Import', () => this.host.importScene()],
+    ];
+    files.forEach(([id, label, onClick, active], i) =>
+      this.button(id, label, PAD + i * (fw + 8), top, fw, 50, () => {
+        this.fileNote = '';
+        onClick();
+      }, { active, size: 22 }),
+    );
+    this.text(this.fileNote || SAVE_STATUS[this.project.status], PAD, top + 74, { size: 19, color: this.project.status === 'error' ? PANEL_COLORS.danger : PANEL_COLORS.muted, maxWidth: inner });
+    top += 98;
+    if (this.sceneView === 'open') {
+      this.drawSavedScenes(top);
+      return;
+    }
+
     const objects = this.editor.doc.objects;
     const rowH = 62;
-    const perPage = 9;
+    const perPage = 8;
     const rows: Array<{ id: string; name: string; color: string; meta: string }> = [
       { id: CAMERA_ID, name: 'Camera', color: PANEL_COLORS.active, meta: `${Math.round(this.editor.doc.camera.lens.focalLength)} mm · ${this.editor.doc.camera.keyframes.length} keys` },
       ...objects.map((o) => ({ id: o.id, name: o.name, color: o.color, meta: objectMeta(o) })),
@@ -457,6 +505,54 @@ export class VRMenu extends CanvasPanel {
     this.button('sprev', '◀', PAD, py, 120, 48, () => this.scenePage--, { disabled: this.scenePage === 0 });
     this.text(`${this.scenePage + 1} / ${pages}`, W / 2, py + 24, { align: 'center', color: PANEL_COLORS.muted });
     this.button('snext', '▶', W - PAD - 120, py, 120, 48, () => this.scenePage++, { disabled: this.scenePage >= pages - 1 });
+  }
+
+  /** One-line feedback under the file buttons. */
+  private note(text: string): void {
+    this.fileNote = text;
+    this.invalidate();
+  }
+
+  private showSavedScenes(): void {
+    if (this.sceneView === 'open') {
+      this.sceneView = 'objects';
+      return;
+    }
+    this.sceneView = 'open';
+    this.savedScenes = null;
+    this.openPage = 0;
+    void this.project
+      .flush()
+      .then(() => this.project.list())
+      .then((list) => (this.savedScenes = list))
+      .catch(() => (this.savedScenes = []))
+      .finally(() => this.invalidate());
+  }
+
+  /** Saved scenes, newest first: pick one to open it. */
+  private drawSavedScenes(top: number): void {
+    const list = this.savedScenes;
+    if (!list) {
+      this.text('Loading scenes…', W / 2, top + 40, { align: 'center', color: PANEL_COLORS.muted });
+      return;
+    }
+    const rowH = 62;
+    const perPage = 8;
+    const pages = Math.max(1, Math.ceil(list.length / perPage));
+    this.openPage = Math.max(0, Math.min(this.openPage, pages - 1));
+    if (!list.length) this.text('No saved scenes yet.', W / 2, top + 40, { align: 'center', color: PANEL_COLORS.muted });
+    list.slice(this.openPage * perPage, (this.openPage + 1) * perPage).forEach((s, i) => {
+      const current = s.id === this.editor.doc.id;
+      const meta = `${s.objectCount} object${s.objectCount === 1 ? '' : 's'} · ${new Date(s.updatedAt).toLocaleDateString()}`;
+      this.listRow(`scene-${s.id}`, PAD, top + i * rowH, W - PAD * 2, rowH - 8, current, PANEL_COLORS.muted, s.name, current ? 'open now' : meta, () => {
+        this.sceneView = 'objects';
+        if (!current) void this.project.openSaved(s.id).then(() => this.note(`Opened “${s.name}”.`));
+      });
+    });
+    const py = top + perPage * rowH + 2;
+    this.button('oprev', '◀', PAD, py, 120, 48, () => this.openPage--, { disabled: this.openPage === 0 });
+    this.button('oback', 'Back to scene', W / 2 - 110, py, 220, 48, () => (this.sceneView = 'objects'), { size: 22 });
+    this.button('onext', '▶', W - PAD - 120, py, 120, 48, () => this.openPage++, { disabled: this.openPage >= pages - 1 });
   }
 
   /** A selectable list row: color dot, name and a right-aligned detail. */

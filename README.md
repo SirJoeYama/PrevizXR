@@ -108,13 +108,17 @@ The desktop layout:
 | Right thumbstick up/down while holding | Zoom (focal length) |
 | Trigger while holding the camera | Record a take (3-2-1 countdown), or stop; while drawing a camera path, drop a keyframe |
 
-The menu opens on your left controller when you enter VR. Its **Scene** tab lists the camera and every object: pick one to select it, then **Go to** takes you next to it. Under the selection, **Draw path** adds waypoints for any object (actors walk them; props and lights glide at their height), with **Clear**, **Loop** and speed.
+The menu opens above your left controller when you enter VR; **Exit VR** at its top right leaves the headset session. Its **Scene** tab has the scene files (**New**, **Save**, **Open** a saved scene, **Export** to Downloads, and **Import**, which leaves VR to show the file picker) and lists the camera and every object: pick one to select it, then **Go to** takes you next to it. Under the selection, **Draw path** adds waypoints for any object (actors walk them; props and lights glide at their height), with **Clear**, **Loop** and speed.
 
 The **Cam path** tab builds a keyframed camera move. **Draw path** puts the camera in your hand: frame the shot on its monitor and pull the trigger to drop a key (the stick zooms, and each key keeps its focal length). Keys appear as numbered markers along the path: point at one with either hand and hold the trigger (or grip) to move and turn it. The list retimes keys (±0.5 s), moves the camera to a key (**Go**), replaces a key with the current camera (**Set**) or deletes it, and **Slower** / **Faster** stretch the whole move. **Preview** plays it through the camera monitor and **Save take** stores it as a take.
 
 The menu's **Takes** tab records, plays and loops takes. The monitor shows the countdown, a red REC timer while recording, and the take name during playback.
 
 The menu's **Camera** tab has focal presets, sensor, aspect, fps, guides and focus, plus **Bring here** to fetch the camera. Grabbing the camera with grip rotates it freely, unlike props, which stay upright. The monitor on top of the camera shows exactly what it records.
+
+### XR (passthrough)
+
+On a Quest 3, **Enter XR** (next to Enter VR) starts a mixed-reality session: you see your room, with the scene standing on your real floor. The virtual floor is hidden in the headset (the grid stays, to show the stage), while the camera monitor and renders still include it. Everything else works as in VR, and the menu's button reads **Exit XR**.
 
 ### VR (hand tracking, no controllers)
 

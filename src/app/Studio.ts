@@ -40,7 +40,7 @@ export class Studio {
     this.keyPath = new KeyframePath(this.editor);
     app.scene.add(this.keyPath.group);
     app.addEditorOnly(this.keyPath.group);
-    this.xrEditor = new XREditor(app, this.editor, this.sync, this.playback, this.camera, this.takes, this.keyPath);
+    this.xrEditor = new XREditor(app, this.editor, this.sync, this.playback, this.camera, this.takes, this.keyPath, this.project);
     this.cameraView = new CameraView(app, this.editor, this.camera);
     this.desktopEditor.suspended = () => this.cameraView.throughCamera || this.takes.busy;
     this.desktopEditor.onSpace = () => (this.takes.busy ? this.takes.stop() : this.playback.toggle());

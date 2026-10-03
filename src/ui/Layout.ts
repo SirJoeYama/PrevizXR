@@ -55,6 +55,20 @@ export class Layout {
       toggleLeft: () => this.toggle('left'),
       toggleRight: () => this.toggle('right'),
     });
+    // Import from the VR menu: the headset session ends first (file pickers can't open in VR), then this asks for the file.
+    const importPrompt: Modal = new Modal('Import scene file', () =>
+      el(
+        'div',
+        { class: 'stack' },
+        el('p', { class: 'hint', text: 'Choose a .previz.json scene file. Enter VR again when it has loaded.' }),
+        el('div', { class: 'row' }, el('button', { class: 'btn primary', type: 'button', text: 'Choose file…', onclick: () => {
+          importPrompt.close();
+          fileInput.click();
+        } })),
+      ),
+    );
+    studio.xrEditor.requestImport = () => void importPrompt.open();
+
     document.getElementById('topbar')!.replaceWith(top.root);
     top.root.id = 'topbar';
     top.root.append(fileInput);
