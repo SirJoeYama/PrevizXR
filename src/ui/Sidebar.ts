@@ -6,6 +6,7 @@ import { CreditsPanel } from './CreditsPanel';
 import { el, section } from './dom';
 import { InspectorPanel } from './InspectorPanel';
 import { ScenePanel } from './ScenePanel';
+import { RenderDialog } from './RenderDialog';
 import { CameraPathPanel, TakesPanel } from './TakesPanel';
 
 const SUPPORT_TEXT: Record<XRSupport, string> = {
@@ -34,6 +35,7 @@ export class Sidebar {
     private readonly studio: Studio,
   ) {
     const { app, editor, playback } = studio;
+    const renderDialog = new RenderDialog(() => studio.renderer(), studio.takes, playback);
 
     this.vrButton = el('button', { type: 'button', class: 'btn primary', disabled: true, text: 'Enter VR', onclick: () => void this.onVrClick() });
     this.vrHint = el('p', { class: 'hint', hidden: true });
@@ -49,7 +51,7 @@ export class Sidebar {
       new AddPanel((item) => studio.spawnDesktop(item)).root,
       new InspectorPanel(editor, studio.sync, studio.desktopEditor).root,
       new CameraPanel(editor, studio.camera, studio.cameraView).root,
-      new TakesPanel(studio.takes).root,
+      new TakesPanel(studio.takes, (id) => void renderDialog.open(id)).root,
       new CameraPathPanel(editor, studio.takes).root,
       section('Preview', 'sb-preview', el('div', { class: 'row' }, this.playButton, this.timeEl)),
       new CreditsPanel(editor).root,

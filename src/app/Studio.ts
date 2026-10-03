@@ -5,6 +5,7 @@ import { CameraView } from '../desktop/CameraView';
 import { DesktopEditor } from '../desktop/DesktopEditor';
 import { Editor } from '../model/Editor';
 import { SceneSync } from '../sync/SceneSync';
+import type { TakeRenderer } from '../render/TakeRenderer';
 import { XREditor } from '../xr/XREditor';
 import type { App } from './App';
 import { Playback } from './Playback';
@@ -24,6 +25,7 @@ export class Studio {
   readonly camera: VirtualCamera;
   readonly cameraView: CameraView;
   readonly takes: Takes;
+  private rendererPromise: Promise<TakeRenderer> | null = null;
 
   constructor(readonly app: App) {
     this.sync = new SceneSync(this.editor, this.loader);
@@ -61,6 +63,12 @@ export class Studio {
       this.sync.tick(dt);
       this.camera.update(dt);
     });
+  }
+
+  /** The offline renderer, loaded on first use (keeps Mediabunny out of the initial bundle for VR). */
+  renderer(): Promise<TakeRenderer> {
+    this.rendererPromise ??= import('../render/TakeRenderer').then((m) => new m.TakeRenderer(this.app, this.sync, this.editor));
+    return this.rendererPromise;
   }
 
   /** Adds an item in front of the desktop view. */

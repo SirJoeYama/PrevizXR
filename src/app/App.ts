@@ -30,6 +30,8 @@ export class App {
   readonly desktop: DesktopControls;
   readonly xrSession: XRSessionManager;
   readonly xrInput: XRInput;
+  /** The stage floor: appears in clay and depth passes, hidden in color_id. */
+  readonly floor: Object3D;
 
   private readonly frameCallbacks = new Set<FrameCallback>();
   /** Objects hidden by renderClean(): grid, labels, gizmos, controllers, menus, camera body… */
@@ -66,6 +68,7 @@ export class App {
 
     const env = buildEnvironment();
     this.scene.add(env.group);
+    this.floor = env.floor;
     for (const o of env.editorOnly) this.editorOnly.add(o);
 
     this.desktop = new DesktopControls(this.camera, this.renderer.domElement);
@@ -86,7 +89,17 @@ export class App {
   }
 
   start(): void {
+    this.lastTime = -1;
     this.renderer.setAnimationLoop((time, frame) => this.tick(time, frame));
+  }
+
+  /** Stops the interactive loop (offline rendering takes over the renderer). */
+  pause(): void {
+    this.renderer.setAnimationLoop(null);
+  }
+
+  resume(): void {
+    this.start();
   }
 
   onFrame(cb: FrameCallback): () => void {
@@ -104,6 +117,24 @@ export class App {
    * With a target, renders offscreen (safe to call inside an XR frame); without one, renders to the canvas.
    */
   renderClean(camera: Camera, target: WebGLRenderTarget | null = null): void {
+    this.withEditorHidden(() => {
+      const r = this.renderer;
+      if (target) {
+        const xr = r.xr.enabled;
+        const prev = r.getRenderTarget();
+        r.xr.enabled = false;
+        r.setRenderTarget(target);
+        r.render(this.scene, camera);
+        r.setRenderTarget(prev);
+        r.xr.enabled = xr;
+      } else {
+        r.render(this.scene, camera);
+      }
+    });
+  }
+
+  /** Runs fn with every editor-only object hidden, then restores their visibility. */
+  withEditorHidden<T>(fn: () => T): T {
     const hidden: Object3D[] = [];
     for (const e of this.editorOnly) {
       for (const o of typeof e === 'function' ? e() : [e]) {
@@ -113,19 +144,11 @@ export class App {
         }
       }
     }
-    const r = this.renderer;
-    if (target) {
-      const xr = r.xr.enabled;
-      const prev = r.getRenderTarget();
-      r.xr.enabled = false;
-      r.setRenderTarget(target);
-      r.render(this.scene, camera);
-      r.setRenderTarget(prev);
-      r.xr.enabled = xr;
-    } else {
-      r.render(this.scene, camera);
+    try {
+      return fn();
+    } finally {
+      for (const o of hidden) o.visible = true;
     }
-    for (const o of hidden) o.visible = true;
   }
 
   private resize(): void {

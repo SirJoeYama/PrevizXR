@@ -14,7 +14,7 @@ import {
  * Stage furniture that is not part of the user's scene model: floor, grid and default lighting.
  * The floor and lights appear in shots; the grid and origin axes are editor-only.
  */
-export function buildEnvironment(): { group: Group; editorOnly: Object3D[] } {
+export function buildEnvironment(): { group: Group; floor: Object3D; editorOnly: Object3D[] } {
   const env = new Group();
   env.name = 'Environment';
 
@@ -52,5 +52,5 @@ export function buildEnvironment(): { group: Group; editorOnly: Object3D[] } {
 
   const editorOnly = [major, minor, axes];
   for (const o of editorOnly) o.userData.helper = true;
-  return { group: env, editorOnly };
+  return { group: env, floor, editorOnly };
 }

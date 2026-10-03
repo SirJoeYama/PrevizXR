@@ -14,7 +14,10 @@ export class TakesPanel {
   private readonly error: HTMLElement;
   private selectedId: string | null = null;
 
-  constructor(private readonly takes: Takes) {
+  constructor(
+    private readonly takes: Takes,
+    private readonly onRender: (takeId?: string) => void,
+  ) {
     this.recordBtn = el('button', { class: 'btn record', type: 'button', title: 'Record a take with a 3-second countdown (R)', onclick: () => takes.toggleRecord() });
     this.status = el('span', { class: 'time', 'aria-live': 'polite' });
     this.list = el('ul', { class: 'take-list' });
@@ -26,7 +29,13 @@ export class TakesPanel {
     this.root = section(
       'Takes',
       'sb-takes',
-      el('div', { class: 'row' }, this.recordBtn, this.status),
+      el(
+        'div',
+        { class: 'row' },
+        this.recordBtn,
+        this.status,
+        el('button', { class: 'btn', type: 'button', text: 'Render…', title: 'Render passes to video', onclick: () => onRender(this.selectedId ?? undefined) }),
+      ),
       el('p', { class: 'hint', text: 'Recording runs the actors from the start and captures the camera at the lens fps. Fly it in camera view (V), or hold it in VR.' }),
       this.list,
       this.details,
@@ -129,6 +138,7 @@ export class TakesPanel {
       el(
         'div',
         { class: 'row' },
+        el('button', { class: 'btn primary', type: 'button', text: 'Render…', onclick: () => this.onRender(take.id) }),
         el('button', { class: 'btn', type: 'button', text: 'Export JSON', onclick: () => void this.takes.exportTake(take.id) }),
         el('button', {
           class: 'btn danger',

@@ -76,6 +76,7 @@ export class SceneSync {
   private readonly external = new Map<string, Object3D>();
   /** Editor-only parts inside object content (light bulbs, loading boxes), hidden in clean renders. */
   readonly inlineHelpers = new Set<Object3D>();
+  private readonly loading = new Set<Promise<void>>();
   private readonly selectionBounds = new Box3();
   /** Precise bounds (skinned meshes included), refreshed every frame for the selected object. */
   private readonly selectionBox = new Box3Helper(this.selectionBounds, 0xffb547);
@@ -107,6 +108,16 @@ export class SceneSync {
   /** Root Object3D of a scene object or registered external root (moves with its transform). */
   rootOf(id: string): Object3D | undefined {
     return this.entries.get(id)?.root ?? this.external.get(id);
+  }
+
+  /** Resolves once every object's model has finished loading (or failed). */
+  async whenLoaded(): Promise<void> {
+    while (this.loading.size) await Promise.allSettled([...this.loading]);
+  }
+
+  /** Scene object roots by id (for render passes that swap materials per object). */
+  objectRoots(): Array<[string, Object3D]> {
+    return [...this.entries].map(([id, e]) => [id, e.root]);
   }
 
   /** Makes an externally managed root pickable and selectable under `id`. */
@@ -166,7 +177,9 @@ export class SceneSync {
       const key = assetKey(obj.asset);
       if (e.key !== key) {
         e.key = key;
-        void this.loadContent(e, obj);
+        const p = this.loadContent(e, obj);
+        this.loading.add(p);
+        void p.finally(() => this.loading.delete(p));
       }
       this.applyLight(e, obj);
       const sig = `${obj.name}|${obj.color}`;

@@ -9,7 +9,7 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 ![PrevizXR screenshot](docs/screenshot.svg)
 <!-- Screenshot placeholder: replace docs/screenshot.svg with a real capture -->
 
-> **Status:** early development. Milestones 1–4 of 7 are done: scene building in VR and on desktop, a 2,000+ model library, a virtual camera with real lens controls, and take recording and playback. See the [roadmap](#roadmap).
+> **Status:** early development. Milestones 1–5 of 7 are done: scene building in VR and on desktop, a 2,000+ model library, a virtual camera with real lens controls, take recording and playback, and rendering clay, color_id and depth passes to MP4. See the [roadmap](#roadmap).
 
 ## Features
 
@@ -21,9 +21,11 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 - **Takes** *(available now)*: record a camera move with a 3-2-1 countdown, in VR (hold the camera and pull the trigger) or on desktop (fly the camera in camera view). Actors play their paths from the start while you record. Takes are captured at exactly the lens frame rate (24/25/30 fps), whatever the headset refresh rate, and stored per frame: camera position, rotation, focal length and focus distance, plus every object's transform and each actor's clip and clip time. Play takes back in the headset or on desktop. Smoothing (0–100%) is applied on playback without touching the raw take. Takes are saved in the browser and import/export as `.take.json`.
 - **Camera paths** *(available now)*: on desktop, build a keyframed dolly/crane move (smooth spline through keys, with rotation and focal length interpolated), preview it, and save it as a take.
 
+- **Render passes** *(available now)*: **clay**, **color_id** and **depth**, rendered offline frame by frame from a take, all at the same resolution (480p/720p/1080p on the short side) and frame rate. Each pass is encoded to **H.264 MP4** with WebCodecs and [Mediabunny](https://mediabunny.dev), or to a **lossless PNG sequence** (zip) when you need exact ID colors and depth values, or when the browser can't encode H.264. Rendering is deterministic: the same take renders byte-identical frames every time. Shows progress, can be canceled, and keeps running at full speed in a background tab.
+
 Planned:
 
-- **Export passes:** clay, color_id, depth, normals and OpenPose (COCO-18), all at the same resolution and frame rate, encoded to H.264 MP4 with WebCodecs (or a PNG-sequence zip as a fallback). Plus the camera as JSON and as an animated glTF, bundled into one zip with a `manifest.json`.
+- **More passes and the export bundle:** normals and OpenPose (COCO-18) passes; the camera as JSON and as an animated glTF; everything for a take in one zip with a `manifest.json`.
 
 ## Setup
 
@@ -77,6 +79,8 @@ Open http://localhost:5173.
 | `K` | Add a camera path keyframe at the camera's current position |
 | `Space` | While a take plays or records: stop |
 
+To render, select a take in the **Takes** panel and click **Render…**. Choose resolution, format and passes, set the depth range (or use **Auto**, which fits near/far to everything the camera sees during the take), then download the files.
+
 Add objects from the **Add** panel in the sidebar: they appear on the floor at the centre of the view, facing you.
 
 ### VR (Quest controllers)
@@ -107,15 +111,15 @@ The menu's **Library** tab has one-tap searches (chair, car, tree, …) because 
 
 ## Feeding passes into AI video tools
 
-Every pass is rendered from the same camera, at the same resolution and frame rate, so the frames line up exactly. Typical uses:
+Every pass is rendered from the same camera, at the same resolution and frame rate, so the frames line up exactly. Normals and pose (and the zip bundle) arrive in milestone 6. Typical uses:
 
 | Pass | Use it as |
 | --- | --- |
-| `depth.mp4` | Depth control (ControlNet depth, Runway/Luma-style structure guidance, Wan/VACE depth conditioning). White means near. |
+| `depth.mp4` | Depth control (ControlNet depth, Runway/Luma-style structure guidance, Wan/VACE depth conditioning). White means near, black far, linear between the near/far you chose (planar view-space depth). |
 | `pose.mp4` | OpenPose control for character motion (ControlNet OpenPose, VACE pose, Animate-style pipelines). COCO-18 keypoints in standard OpenPose colors on black. |
-| `clay.mp4` | Source video for video-to-video restyling (Runway Gen-4 V2V, Luma Modify, Kling, ComfyUI AnimateDiff/VACE). Neutral grey keeps the model free to invent materials. |
+| `clay.mp4` | Source video for video-to-video restyling (Runway Gen-4 V2V, Luma Modify, Kling, ComfyUI AnimateDiff/VACE). Neutral grey with soft studio light (the scene's own lights are ignored), so the model is free to invent materials and lighting. |
 | `normals.mp4` | Normal-map control where supported, or as an extra structure cue. |
-| `color_id.mp4` | Segmentation-style masks: each actor or prop has a flat, unique color, handy for regional prompts or compositing masks. |
+| `color_id.mp4` | Segmentation-style masks: each actor or prop has a flat, unique color (the swatch in the inspector) on black, handy for regional prompts or compositing masks. The floor is black too. Use the PNG format when you need exact colors, because H.264 slightly shifts colors and blurs edges. |
 | `camera.json` / `camera.glb` | The exact camera move, to match it in Blender, Unreal or After Effects, or to drive camera-conditioned models. |
 
 Tips:
@@ -129,7 +133,7 @@ Tips:
 2. ✅ Spawning and manipulating actors and props in VR and desktop; save/load; Poly by Google library
 3. ✅ Virtual camera with live monitor and lens controls
 4. ✅ Take recording and playback
-5. Render mode with clay, color_id and depth to MP4
+5. ✅ Render mode with clay, color_id and depth to MP4
 6. Normals and pose passes, camera export, zip bundle
 7. Polish: Quest performance (72 fps), docs, menu accessibility, hand tracking
 
