@@ -1,10 +1,12 @@
 import { nextIdColor } from './idColors';
+import { nextKeyTime } from './take';
 import {
   CAMERA_ID,
   cloneDoc,
   createId,
   createScene,
   defaultActorSettings,
+  type CameraKey,
   type LensSettings,
   type SceneDoc,
   type SceneObject,
@@ -157,7 +159,8 @@ export class Editor {
     const copy = cloneDoc(src);
     const p = copy.transform.position;
     copy.transform.position = [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]];
-    if (copy.actor) copy.actor.waypoints = copy.actor.waypoints.map((w) => [w[0] + offset[0], w[1] + offset[1], w[2] + offset[2]]);
+    const path = copy.actor ?? copy.motion;
+    if (path) path.waypoints = path.waypoints.map((w) => [w[0] + offset[0], w[1] + offset[1], w[2] + offset[2]]);
     return this.add({ ...copy, id: undefined, color: undefined, name: uniqueName(src.name, this.current.objects) });
   }
 
@@ -188,6 +191,37 @@ export class Editor {
     const apply = (doc: SceneDoc) => mutate(doc.camera.lens);
     if (transient) this.transient(apply);
     else this.edit(apply);
+  }
+
+  /** Edits the camera path's keyframes as one undoable step, keeping them sorted by time. */
+  editKeys(mutate: (keys: CameraKey[]) => void): void {
+    this.edit((doc) => {
+      mutate(doc.camera.keyframes);
+      doc.camera.keyframes.sort((a, b) => a.time - b.time);
+    });
+  }
+
+  /** The camera's current pose and focal length as a keyframe at `time`. */
+  cameraKey(time: number): CameraKey {
+    const { transform, lens } = this.current.camera;
+    return { time, position: [...transform.position], rotation: [...transform.rotation], focalLength: lens.focalLength };
+  }
+
+  /** Appends a keyframe at the camera, timed from its distance to the previous key. */
+  addCameraKey(): void {
+    const keys = this.current.camera.keyframes;
+    const key = this.cameraKey(nextKeyTime(keys, this.current.camera.transform.position));
+    this.edit((doc) => doc.camera.keyframes.push(key));
+  }
+
+  /** Moves the camera to keyframe i (pose and focal length) as one undoable step. */
+  goToKey(i: number): void {
+    const k = this.current.camera.keyframes[i];
+    if (!k) return;
+    this.edit((doc) => {
+      doc.camera.transform = { position: [...k.position], rotation: [...k.rotation], scale: [1, 1, 1] };
+      doc.camera.lens.focalLength = k.focalLength;
+    });
   }
 
   rename(name: string): void {

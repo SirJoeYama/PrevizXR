@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { samplePath, yawBetween } from './motion';
-import type { Vec3 } from './scene';
+import { multiplyQuat, quatFromYaw } from './math';
+import { objectPoseAt, samplePath, yawBetween } from './motion';
+import { identityTransform, type SceneObject, type Vec3 } from './scene';
 
 const start: Vec3 = [0, 0, 0];
 const path = { waypoints: [[4, 0, 0], [4, 0, 3]] as Vec3[], speed: 2, loop: false };
@@ -41,6 +42,36 @@ describe('samplePath', () => {
 
   it('is deterministic for the same t', () => {
     expect(samplePath(start, path, 1.2345)).toEqual(samplePath(start, path, 1.2345));
+  });
+});
+
+describe('objectPoseAt', () => {
+  const car = (): SceneObject => ({
+    id: 'c',
+    kind: 'prop',
+    name: 'Car',
+    asset: { source: 'primitive', id: 'car' },
+    color: '#ff0000',
+    transform: { ...identityTransform(), position: [0, 0.5, 0], rotation: quatFromYaw(0.3) },
+    motion: { speed: 2, waypoints: [[4, 0.5, 0], [4, 0.5, 3]], loop: false },
+  });
+
+  it('moves props along their path and keeps their orientation until the path turns', () => {
+    const obj = car();
+    expect(objectPoseAt(obj, 0).q).toEqual(obj.transform.rotation);
+    const p = objectPoseAt(obj, 1);
+    expect(p.p).toEqual([2, 0.5, 0]);
+    expect(p.q.map((v) => +v.toFixed(6))).toEqual(obj.transform.rotation.map((v) => +v.toFixed(6)));
+    expect(p.clip).toBeUndefined();
+    // After the corner (+X → +Z) the car has turned by -90° about Y on top of its own rotation.
+    const turned = multiplyQuat(quatFromYaw(-Math.PI / 2), obj.transform.rotation);
+    expect(objectPoseAt(obj, 3).q.map((v) => +v.toFixed(6))).toEqual(turned.map((v) => +v.toFixed(6)));
+  });
+
+  it('leaves objects without a path at their transform', () => {
+    const obj = car();
+    delete obj.motion;
+    expect(objectPoseAt(obj, 5).p).toEqual([0, 0.5, 0]);
   });
 });
 

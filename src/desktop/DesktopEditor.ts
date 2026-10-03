@@ -4,7 +4,7 @@ import type { App } from '../app/App';
 import type { Playback } from '../app/Playback';
 import { deleteSelected, duplicateSelected, readTransform, snapToFloor } from '../interaction/ops';
 import type { Editor } from '../model/Editor';
-import type { Vec3 } from '../model/scene';
+import { editPath, waypointAt, type Vec3 } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { announce } from '../ui/announce';
 
@@ -19,7 +19,7 @@ const floorPlane = new Plane(new Vector3(0, 1, 0), 0);
  */
 export class DesktopEditor {
   readonly gizmo: TransformControls;
-  /** When true, clicks on the floor add waypoints to the selected actor. */
+  /** When true, clicks on the floor add waypoints to the selected object's path. */
   pathMode = false;
   /** Returns true while another mode (camera view) owns the mouse: no picking, no gizmo. */
   suspended: () => boolean = () => false;
@@ -57,7 +57,7 @@ export class DesktopEditor {
 
     editor.subscribe((c) => {
       if (c === 'selection' || c === 'doc') this.attach();
-      if (c === 'selection' && this.pathMode && editor.selected?.kind !== 'actor') this.setPathMode(false);
+      if (c === 'selection' && this.pathMode && !editor.selected) this.setPathMode(false);
     });
     playback.onChange(() => this.attach());
     app.xrSession.addEventListener('change', () => this.attach());
@@ -94,7 +94,7 @@ export class DesktopEditor {
 
   setPathMode(on: boolean): void {
     const was = this.pathMode;
-    this.pathMode = on && this.editor.selected?.kind === 'actor';
+    this.pathMode = on && !!this.editor.selected;
     if (this.pathMode !== was) announce(this.pathMode ? 'Drawing path: click the floor to add waypoints, Escape to finish' : 'Path drawing off');
     this.app.renderer.domElement.style.cursor = this.pathMode ? 'crosshair' : '';
     this.emit();
@@ -147,10 +147,7 @@ export class DesktopEditor {
     if (this.pathMode) {
       const sel = this.editor.selected;
       const hit = this.raycaster.ray.intersectPlane(floorPlane, new Vector3());
-      if (sel?.actor && hit) {
-        const point: Vec3 = [round(hit.x), 0, round(hit.z)];
-        this.editor.update(sel.id, (o) => o.actor!.waypoints.push(point));
-      }
+      if (sel && hit) this.editor.update(sel.id, (o) => editPath(o).waypoints.push(waypointAt(o, hit.x, hit.z)));
       return;
     }
 

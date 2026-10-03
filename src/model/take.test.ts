@@ -8,6 +8,7 @@ import {
   TakeRecorder,
   bakeKeyframes,
   cameraFrames,
+  nextKeyTime,
   parseTake,
   sampleKeyframes,
   sampleTake,
@@ -162,6 +163,12 @@ describe('keyframed camera', () => {
     expect(take.frames[50].camera.p).toEqual([2, 1.6, 4]);
     expect(take.frames[100].camera.p).toEqual([4, 3, 4]);
     expect(bakeKeyframes(ed.doc, { id: 'k', name: 'Path', sceneId: ed.doc.id, sceneName: ed.doc.name }).frames).toEqual(take.frames);
+  });
+
+  it('times appended keys by distance, at least a second apart', () => {
+    expect(nextKeyTime([], [9, 9, 9])).toBe(0);
+    expect(nextKeyTime(keys, [4, 3, 7])).toBe(7); // 3 m from the last key at 1 m/s
+    expect(nextKeyTime(keys, [4, 3, 4.2])).toBe(5); // close by: still one second later
   });
 
   it('needs two keyframes to bake', () => {

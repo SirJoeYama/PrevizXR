@@ -12,14 +12,14 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 
 ## Features
 
-- **Scene building** *(available now)*: four rigged humanoid actors with idle, walk, run and sit clips and waypoint paths you draw on the floor; blockout shapes (box, cylinder, wall, door frame, chair, table, car); 42 bundled furniture, street, vehicle, nature and building models; point and spot lights. Every object gets a flat ID color and a name label. Grab, move, rotate, scale, snap to floor, duplicate, delete, undo and redo, in VR and on desktop. Preview plays actor paths and clips from the start.
+- **Scene building** *(available now)*: four rigged humanoid actors with idle, walk, run and sit clips and waypoint paths you draw on the floor; blockout shapes (box, cylinder, wall, door frame, chair, table, car); 42 bundled furniture, street, vehicle, nature and building models; point and spot lights. Every object gets a flat ID color and a name label. Grab, move, rotate, scale, snap to floor, duplicate, delete, undo and redo, in VR and on desktop. Any object can follow a waypoint path (props and lights keep their height and orientation and turn at corners). Preview plays paths and clips from the start.
 - **Model library** *(available now)*: search and place any of the 2,292 [Poly by Google](https://poly.pizza/u/Poly%20by%20Google) models on Poly Pizza (CC-BY 3.0), loaded on demand. Attribution is tracked per scene in the Credits panel. See [ASSETS.md](ASSETS.md).
 - **Reference images** *(available now)*: import JPG, PNG or WebP storyboards, concept art or plates, and place them as floating picture planes you can grab, move, rotate and scale in VR. They are hidden from the camera monitor and renders by default (toggle **Hide in renders** in the inspector to use one as a backdrop). Images live in the browser's image library and are embedded in exported scene files.
 - **Scenes** *(available now)*: autosaved in the browser (IndexedDB), reopened on the next visit, and importable/exportable as `.previz.json` files.
 - **Virtual camera** *(available now)*: a camera you hold in VR (it follows your right controller) or fly on desktop, with a live monitor on the camera body and a picture-in-picture monitor on desktop. Focal length from 14 to 135 mm (presets or continuous) gives the correct field of view for a Super 35 (24.89 × 18.66 mm) or full-frame (36 × 24 mm) sensor at 16:9, 9:16, 2.39:1 or 1:1. Also: 24/25/30 fps, autofocus on the frame centre or manual focus distance, and rule-of-thirds, safe-area and centre guides.
 
 - **Takes** *(available now)*: record a camera move with a 3-2-1 countdown, in VR (hold the camera and pull the trigger) or on desktop (fly the camera in camera view). Actors play their paths from the start while you record. Takes are captured at exactly the lens frame rate (24/25/30 fps), whatever the headset refresh rate, and stored per frame: camera position, rotation, focal length and focus distance, plus every object's transform and each actor's clip and clip time. Play takes back in the headset or on desktop. Smoothing (0–100%) is applied on playback without touching the raw take. Takes are saved in the browser and import/export as `.take.json`.
-- **Camera paths** *(available now)*: on desktop, build a keyframed dolly/crane move (smooth spline through keys, with rotation and focal length interpolated), preview it, and save it as a take.
+- **Camera paths** *(available now)*: build a keyframed dolly/crane move (smooth spline through keys, with rotation and focal length interpolated), preview it, and save it as a take. On desktop, add keys from the camera; in VR, draw the path with the camera in your hand, then grab the numbered markers to move keys and retime them in the menu.
 
 - **Render passes** *(available now)*: **clay**, **color_id**, **depth**, **normals** and **pose** (OpenPose COCO-18), rendered offline frame by frame from a take, all at the same resolution (480p/720p/1080p on the short side) and frame rate. Each pass is encoded to **H.264 MP4** with WebCodecs and [Mediabunny](https://mediabunny.dev), or to a **lossless PNG sequence** (zip) when you need exact ID colors and depth values, or when the browser can't encode H.264. Rendering is deterministic: the same take renders byte-identical frames every time. Shows progress, can be canceled, and keeps running at full speed in a background tab.
 
@@ -66,7 +66,7 @@ Open http://localhost:5173.
 | `1` / `2` / `3` | Move / rotate / scale gizmo |
 | `G` | Snap the selection to the floor |
 | `F` | Focus the view on the selection |
-| `P` | Draw a path for the selected actor: click the floor to add waypoints, `Esc` to finish |
+| `P` | Draw a path for the selected object: click the floor to add waypoints, `Esc` to finish |
 | `Ctrl+D` / `Delete` | Duplicate / delete |
 | `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | Undo / redo |
 | `Space` | Preview actor paths from the start, or stop |
@@ -94,7 +94,7 @@ The desktop layout:
 | --- | --- |
 | **B** | Show or hide the menu on your left controller |
 | Trigger (pointing at the menu) | Press a button or add the highlighted object in front of you |
-| Trigger (pointing at an object) | Select it |
+| Trigger (pointing at an object, the camera or a camera-path marker) | Select it; hold the trigger and move to drag it |
 | Trigger (path drawing on) | Add a waypoint where the ray hits the floor |
 | Grip | Grab the object under the ray; it stays upright and turns with your wrist |
 | Grip + trigger | Grab with free rotation |
@@ -106,7 +106,11 @@ The desktop layout:
 | **X** / **Y** | Undo / redo |
 | Right thumbstick click | Hold the camera in your right hand (it points where the controller points), or let go |
 | Right thumbstick up/down while holding | Zoom (focal length) |
-| Trigger while holding the camera | Record a take (3-2-1 countdown), or stop |
+| Trigger while holding the camera | Record a take (3-2-1 countdown), or stop; while drawing a camera path, drop a keyframe |
+
+The menu opens on your left controller when you enter VR. Its **Scene** tab lists the camera and every object: pick one to select it, then **Go to** takes you next to it. Under the selection, **Draw path** adds waypoints for any object (actors walk them; props and lights glide at their height), with **Clear**, **Loop** and speed.
+
+The **Cam path** tab builds a keyframed camera move. **Draw path** puts the camera in your hand: frame the shot on its monitor and pull the trigger to drop a key (the stick zooms, and each key keeps its focal length). Keys appear as numbered markers along the path: point at one with either hand and hold the trigger (or grip) to move and turn it. The list retimes keys (±0.5 s), moves the camera to a key (**Go**), replaces a key with the current camera (**Set**) or deletes it, and **Slower** / **Faster** stretch the whole move. **Preview** plays it through the camera monitor and **Save take** stores it as a take.
 
 The menu's **Takes** tab records, plays and loops takes. The monitor shows the countdown, a red REC timer while recording, and the take name during playback.
 
@@ -117,11 +121,11 @@ The menu's **Camera** tab has focal presets, sensor, aspect, fps, guides and foc
 | Gesture | Action |
 | --- | --- |
 | Pinch (index + thumb) pointing at the menu | Press a button or add an object |
-| Pinch on an object and hold | Grab and move it (it stays upright); release to drop |
+| Pinch on an object (or camera-path marker) and hold | Grab and move it (objects stay upright); release to drop |
 | Pinch with the other hand while grabbing | Scale the object |
 | Pinch on the floor while drawing a path | Add a waypoint |
 | Off-hand pinch on empty space | Show or hide the menu (it floats in front of you) |
-| Pointer-hand pinch while holding the camera | Record a take, or stop |
+| Pointer-hand pinch while holding the camera | Record a take, or stop; while drawing a camera path, drop a keyframe |
 
 Use the menu's Camera tab to hold the camera, zoom (±) and bring it to you. Walk physically, since hands have no thumbsticks.
 

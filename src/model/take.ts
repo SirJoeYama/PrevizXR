@@ -226,6 +226,20 @@ export function sampleTake(take: Take, t: number): TakeFrame {
   return { camera: lerpCamera(cams[i], cams[i + 1], f), objects };
 }
 
+/** Camera speed assumed when timing a new keyframe from its distance to the previous one (m/s). */
+export const KEY_SPEED = 1;
+
+/**
+ * Time for a keyframe appended at `position`: 0 for the first; after that, the previous key's time plus
+ * the travel time at KEY_SPEED, at least 1 s, rounded to 0.1 s. Retime keys afterwards to change pacing.
+ */
+export function nextKeyTime(keys: readonly CameraKey[], position: Vec3): number {
+  const last = keys[keys.length - 1];
+  if (!last) return 0;
+  const d = Math.hypot(position[0] - last.position[0], position[1] - last.position[1], position[2] - last.position[2]);
+  return Math.round((last.time + Math.max(1, d / KEY_SPEED)) * 10) / 10;
+}
+
 /** Camera state at time t on a keyframed path: Catmull-Rom positions, slerped rotations, linear focal length. */
 export function sampleKeyframes(keys: readonly CameraKey[], t: number): Omit<CameraSample, 'focus'> {
   if (keys.length === 0) throw new Error('No keyframes');

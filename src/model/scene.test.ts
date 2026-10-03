@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAMERA_ID, SCENE_FORMAT_VERSION, assetKey, createScene, identityTransform } from './scene';
+import { CAMERA_ID, SCENE_FORMAT_VERSION, assetKey, createScene, editPath, identityTransform, pathOf, waypointAt } from './scene';
 import { idColorAt, nextIdColor } from './idColors';
 import { Editor, uniqueName } from './Editor';
 import { SceneFormatError, parseScene, serializeScene } from './serialize';
@@ -134,6 +134,15 @@ describe('Editor', () => {
     expect(b.actor!.waypoints).toEqual([[1.5, 0, 1.5]]);
   });
 
+  it('gives props a path on first edit and offsets it when duplicating', () => {
+    const ed = new Editor();
+    const p = ed.add(box());
+    expect(pathOf(p)).toBeUndefined();
+    ed.update(p.id, (o) => editPath(o).waypoints.push(waypointAt(o, 2, 3)));
+    expect(ed.find(p.id)!.motion).toEqual({ speed: 2, waypoints: [[2, 0, 3]], loop: false });
+    expect(ed.duplicate(p.id)!.motion!.waypoints).toEqual([[2.5, 0, 3.5]]);
+  });
+
   it('notifies listeners', () => {
     const ed = new Editor();
     const seen: string[] = [];
@@ -141,6 +150,22 @@ describe('Editor', () => {
     ed.add(box());
     expect(seen).toContain('doc');
     expect(seen).toContain('selection');
+  });
+});
+
+describe('camera keyframes', () => {
+  it('adds keys at the camera, timed by distance, and keeps them sorted', () => {
+    const ed = new Editor();
+    ed.addCameraKey();
+    ed.setTransform(CAMERA_ID, { position: [3, 1.6, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
+    ed.updateLens((l) => (l.focalLength = 50));
+    ed.addCameraKey();
+    expect(ed.doc.camera.keyframes.map((k) => [k.time, k.position[0], k.focalLength])).toEqual([[0, 0, 35], [3, 3, 50]]);
+    ed.editKeys((ks) => (ks[0].time = 5));
+    expect(ed.doc.camera.keyframes.map((k) => k.time)).toEqual([3, 5]);
+    ed.goToKey(1);
+    expect(ed.doc.camera.transform.position).toEqual([0, 1.6, 4]);
+    expect(ed.doc.camera.lens.focalLength).toBe(35);
   });
 });
 
@@ -183,6 +208,8 @@ describe('scene serialization', () => {
     };
     const parsed = parseScene({ ...doc, objects: [actor] });
     expect(parsed.objects[0].actor).toEqual({ clip: 'idle', speed: 1.3, waypoints: [], loop: true });
+    const prop = { ...actor, id: 'p', kind: 'prop', actor: undefined, motion: { speed: null, waypoints: [[1, 0, 2]], loop: 0 } };
+    expect(parseScene({ ...doc, objects: [prop] }).objects[0].motion).toEqual({ speed: 2, waypoints: [[1, 0, 2]], loop: false });
   });
 });
 

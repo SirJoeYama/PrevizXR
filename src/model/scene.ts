@@ -52,14 +52,19 @@ export type AssetRef =
 export const ACTOR_CLIPS = ['idle', 'walk', 'run', 'sit'] as const;
 export type ActorClip = (typeof ACTOR_CLIPS)[number];
 
-export interface ActorSettings {
-  clip: ActorClip;
+/** A path an object travels along during preview, takes and renders. */
+export interface MotionPath {
   /** Metres per second along the waypoint path. */
   speed: number;
-  /** World-space floor points the actor walks through after leaving its start position. */
+  /** World-space points the object passes through after leaving its start position. */
   waypoints: Vec3[];
   /** Return to the start and repeat, instead of stopping at the last waypoint. */
   loop: boolean;
+}
+
+/** Actors walk their path on the floor, facing the direction of travel. */
+export interface ActorSettings extends MotionPath {
+  clip: ActorClip;
 }
 
 export interface LightSettings {
@@ -76,6 +81,8 @@ export interface SceneObject {
   /** Flat ID color (#rrggbb) used for labels and the color_id pass. Unique per object. */
   color: string;
   actor?: ActorSettings;
+  /** Props and lights: an optional path (actors keep theirs in `actor`). */
+  motion?: MotionPath;
   light?: LightSettings;
   /** Editor-only reference (storyboards, mood images): hidden from the camera monitor and render passes. */
   hiddenInRenders?: boolean;
@@ -101,7 +108,7 @@ export interface LensSettings {
   guides: Guides;
 }
 
-/** A keyframe of the dolly/crane camera path (desktop keyframed mode). */
+/** A keyframe of the dolly/crane camera path. */
 export interface CameraKey {
   /** Seconds from the start of the shot. */
   time: number;
@@ -114,7 +121,7 @@ export interface CameraKey {
 export interface CameraRig {
   transform: Transform;
   lens: LensSettings;
-  /** Keyframed path, sorted by time. Empty unless the user builds one on desktop. */
+  /** Keyframed path, sorted by time. Empty unless the user builds one. */
   keyframes: CameraKey[];
 }
 
@@ -167,6 +174,28 @@ export const DEFAULT_SPEED: Record<ActorClip, number> = { idle: 0, walk: 1.3, ru
 
 export function defaultActorSettings(): ActorSettings {
   return { clip: 'idle', speed: DEFAULT_SPEED.walk, waypoints: [], loop: false };
+}
+
+/** Speed of a new prop or light path (m/s). */
+export const DEFAULT_MOTION_SPEED = 2;
+
+/** An object's path settings: an actor's own, or a prop's or light's optional motion. */
+export function pathOf(obj: Readonly<SceneObject>): Readonly<MotionPath> | undefined {
+  return obj.actor ?? obj.motion;
+}
+
+/** Path settings to mutate (inside an Editor edit); created on first use for props and lights. */
+export function editPath(obj: SceneObject): MotionPath {
+  return obj.actor ?? (obj.motion ??= { speed: DEFAULT_MOTION_SPEED, waypoints: [], loop: false });
+}
+
+/**
+ * Where a waypoint placed at floor point (x, z) goes: actors walk on the floor; other objects
+ * travel at the height they stand at.
+ */
+export function waypointAt(obj: Readonly<SceneObject>, x: number, z: number): Vec3 {
+  const r = (v: number) => Math.round(v * 1000) / 1000;
+  return [r(x), obj.actor ? 0 : obj.transform.position[1], r(z)];
 }
 
 /** Stable key for an asset, used for caching and to detect asset changes. */

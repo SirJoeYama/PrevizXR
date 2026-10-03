@@ -1,4 +1,5 @@
 import {
+  Box3,
   Euler,
   Line,
   LineBasicMaterial,
@@ -10,10 +11,12 @@ import {
   Raycaster,
   RingGeometry,
   Vector3,
+  type Object3D,
   type Vector2,
 } from 'three';
 import type { App } from '../app/App';
 import { clampFocal } from '../camera/lens';
+import type { KeyframePath } from '../camera/KeyframePath';
 import type { VirtualCamera } from '../camera/VirtualCamera';
 import type { Playback } from '../app/Playback';
 import { MENU_SIZES, dominantHand, onPrefs, prefs } from '../app/prefs';
@@ -21,7 +24,7 @@ import type { Takes } from '../app/Takes';
 import { spawn, type Spawnable } from '../app/spawn';
 import { readTransform, snapToFloor } from '../interaction/ops';
 import type { Editor } from '../model/Editor';
-import { CAMERA_ID, type Transform, type Vec3 } from '../model/scene';
+import { CAMERA_ID, editPath, waypointAt, type Quat, type Transform, type Vec3 } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { VRMenu } from '../ui/vr/VRMenu';
 import type { XRInputSlot } from './XRInput';
@@ -44,20 +47,36 @@ const RAY_LENGTH = 5;
 const MAX_PICK = 30;
 const SPAWN_DISTANCE = 1.6;
 const ZOOM_SPEED = 1.2; // focal length ×e per second at full stick
+/** A grab only starts moving things once the hand has moved this far (so a click to select never nudges). */
+const DRAG_START_METRES = 0.01;
+const DRAG_START_RADIANS = (1.2 * Math.PI) / 180;
+/** Go to: stand at least this far from the object. */
+const GO_TO_DISTANCE = 1.5;
 /** Where the camera sits on the right controller: slightly above and in front, looking along the ray. */
 const HOLD_OFFSET = new Matrix4().makeTranslation(0, 0.035, -0.06);
 
 const UP = new Vector3(0, 1, 0);
 const floorPlane = new Plane(UP.clone(), 0);
 
+type Button = 'trigger' | 'squeeze' | 'pinch';
+
 interface Grab {
-  id: string;
+  /** Scene object (or CAMERA_ID) being moved, or null for a camera keyframe. */
+  id: string | null;
+  /** Camera keyframe index being moved, or null. */
+  key: number | null;
+  target: Object3D;
+  /** The button that started the grab; releasing it ends the grab. */
+  button: Button;
   offset: Matrix4;
-  /** Free rotation (trigger held when grabbing); otherwise the object stays upright and only turns about Y. */
+  /** Free rotation (camera, keyframes, or trigger held when gripping); otherwise the object stays upright and only turns about Y. */
   free: boolean;
   startQuat: Quaternion;
   startYaw: number;
   twist: number;
+  /** Hand pose when the grab began; nothing moves until the hand leaves it (see DRAG_START_*). */
+  startRay: Matrix4;
+  dragging: boolean;
 }
 
 interface Hand {
@@ -67,6 +86,8 @@ interface Hand {
   reticle: Mesh;
   grab: Grab | null;
   hitObject: string | null;
+  /** Camera keyframe marker under the ray, if any. */
+  hitKey: number | null;
   hitPoint: Vector3 | null;
   menuUv: Vector2 | null;
   floorPoint: Vector3 | null;
@@ -84,19 +105,25 @@ const HAND_MENU_DROP = 0.18;
 
 /**
  * VR editing.
- * Controllers (dominant = right unless left-handed mode): trigger = select / press menu buttons / place
- * waypoints, grip = grab (both grips = scale), off-hand stick = move, dominant stick = snap turn (or
- * push/pull and twist while grabbing), dominant stick click = hold the camera (trigger then records),
- * dominant A/B = to floor / menu, off-hand X/Y = undo / redo. The menu rides on the off-hand controller.
+ * Controllers (dominant = right unless left-handed mode): trigger = press menu buttons / select, and
+ * hold-and-drag to move what you point at (objects, camera, camera-path keys); grip = grab too
+ * (with trigger held: free rotation; both hands = scale); off-hand stick = move, dominant stick = snap
+ * turn (or push/pull and twist while grabbing), dominant stick click = hold the camera (trigger then
+ * records, or drops a keyframe while drawing a camera path), dominant A/B = to floor / menu, off-hand
+ * X/Y = undo / redo. The menu rides on the off-hand controller.
+ * Path mode: with an object selected the trigger adds waypoints on the floor; with the camera selected
+ * the camera follows the hand and the trigger drops keyframes.
  * Tracked hands: pinch = trigger; pinch on an object and hold = grab; pinch with both = scale;
  * off-hand pinch on empty space = show/hide a menu floating in front of you.
  */
 export class XREditor {
   readonly menu: VRMenu;
   pathMode = false;
+  /** Selection the path mode was started for (an object id or CAMERA_ID). */
+  private pathFor: string | null = null;
   private readonly hands: Hand[];
   private readonly raycaster = new Raycaster();
-  private scaling: { id: string; d0: number; s0: Vector3 } | null = null;
+  private scaling: { id: string; d0: number; s0: Vector3; hand: Hand; button: Button } | null = null;
   /** The hand holding the virtual camera, if any. */
   private holder: Hand | null = null;
   private readonly takes: Takes;
@@ -107,6 +134,7 @@ export class XREditor {
   private readonly v = new Vector3();
   private readonly v2 = new Vector3();
   private readonly q = new Quaternion();
+  private readonly q2 = new Quaternion();
   private readonly s = new Vector3();
   private readonly euler = new Euler(0, 0, 0, 'YXZ');
 
@@ -117,6 +145,7 @@ export class XREditor {
     private readonly playback: Playback,
     private readonly vcam: VirtualCamera,
     takes: Takes,
+    private readonly keyPath: KeyframePath,
   ) {
     this.takes = takes;
     this.menu = new VRMenu(editor, playback, takes, {
@@ -132,6 +161,7 @@ export class XREditor {
       snapSelected: () => {
         if (editor.selectedId) snapToFloor(editor, sync, editor.selectedId);
       },
+      goTo: (id) => this.goTo(id),
     });
     this.menu.mesh.visible = false;
     onPrefs(() => {
@@ -150,27 +180,48 @@ export class XREditor {
       reticle.visible = false;
       app.scene.add(reticle);
       app.addEditorOnly(reticle);
-      const hand: Hand = { slot, prev: [], line, reticle, grab: null, hitObject: null, hitPoint: null, menuUv: null, floorPoint: null, pinch: false, prevPinch: false, hoverId: null };
+      const hand: Hand = {
+        slot,
+        prev: [],
+        line,
+        reticle,
+        grab: null,
+        hitObject: null,
+        hitKey: null,
+        hitPoint: null,
+        menuUv: null,
+        floorPoint: null,
+        pinch: false,
+        prevPinch: false,
+        hoverId: null,
+      };
       // Hands report pinches as the input source's select events (controllers too, but those use the gamepad).
       slot.ray.addEventListener('selectstart', () => (hand.pinch = true));
       slot.ray.addEventListener('selectend', () => (hand.pinch = false));
       slot.ray.addEventListener('disconnected', () => {
         hand.pinch = false;
-        if (hand.grab) this.onRelease(hand);
+        this.releaseHand(hand);
       });
       return hand;
     });
 
     editor.subscribe((c) => {
-      if (c === 'selection' && this.pathMode && editor.selected?.kind !== 'actor') this.setPathMode(false);
+      if (c === 'selection' && this.pathMode && editor.selectedId !== this.pathFor) this.setPathMode(false);
     });
     app.xrSession.addEventListener('change', () => {
-      if (!app.xrSession.presenting) this.releaseAll();
+      if (app.xrSession.presenting) this.menu.mesh.visible = true; // show the menu on entering VR
+      else this.releaseAll();
     });
   }
 
+  /** Path mode for the selection: waypoints for an object, keyframes (camera in hand) for the camera. */
   setPathMode(on: boolean): void {
-    this.pathMode = on && this.editor.selected?.kind === 'actor';
+    const id = on ? this.editor.selectedId : null;
+    const wasCamera = this.pathMode && this.pathFor === CAMERA_ID;
+    this.pathMode = id !== null;
+    this.pathFor = id;
+    if (id === CAMERA_ID && !this.holder) this.toggleHold(this.dominant() ?? this.hands[1]);
+    else if (!this.pathMode && wasCamera && this.holder) this.toggleHold(this.holder);
     this.menu.invalidate();
   }
 
@@ -182,6 +233,7 @@ export class XREditor {
       else this.updateHand(hand, dt);
     }
     this.updateScaling();
+    this.updateKeyHighlight();
     this.menu.update();
   }
 
@@ -241,7 +293,7 @@ export class XREditor {
     const up = !hand.pinch && hand.prevPinch;
     hand.prevPinch = hand.pinch;
     if (down) this.onPinch(hand);
-    if (up) this.onRelease(hand);
+    if (up) this.onButtonUp(hand, 'pinch');
     if (this.holder === hand) this.updateHold(hand, 0, dt);
     else if (hand.grab) this.updateGrab(hand, 0, 0, dt);
   }
@@ -252,16 +304,12 @@ export class XREditor {
       return;
     }
     if (this.holder === hand) {
-      this.takes.toggleRecord();
+      this.holderTrigger(hand);
       return;
     }
-    const other = this.hands.find((h) => h !== hand && h.grab);
-    if (hand.hitObject || other) {
-      this.onSqueeze(hand, false); // grab, or scale with the other hand
-      return;
-    }
-    if (this.pathMode && hand.floorPoint) {
-      this.onTrigger(hand);
+    if (this.placeWaypoint(hand)) return;
+    if (this.canGrab(hand)) {
+      this.startGrab(hand, 'pinch', false); // grab, or scale with the other hand
       return;
     }
     if (this.isOffHand(hand)) this.toggleWorldMenu();
@@ -284,16 +332,17 @@ export class XREditor {
 
     const holding = this.holder === hand;
     if (down(STICK_PRESS) && !isOff) this.toggleHold(hand);
-    if (down(SQUEEZE) && !holding) {
-      this.onSqueeze(hand, pressed(TRIGGER));
+    if (down(SQUEEZE) && !holding && !hand.grab) {
+      this.startGrab(hand, 'squeeze', pressed(TRIGGER));
       if (hand.grab) this.pulse(hand, 0.4, 30);
     }
-    if (up(SQUEEZE)) this.onRelease(hand);
-    // Holding the camera, the trigger is the record button (unless pointing at the menu).
-    if (down(TRIGGER) && holding && !hand.menuUv) {
-      this.takes.toggleRecord();
-      this.pulse(hand, 0.8, 60);
-    } else if (down(TRIGGER) && !hand.grab) this.onTrigger(hand);
+    if (up(SQUEEZE)) this.onButtonUp(hand, 'squeeze');
+    if (down(TRIGGER) && !hand.grab) {
+      // Holding the camera, the trigger records or drops a keyframe (unless pointing at the menu).
+      if (holding && !hand.menuUv) this.holderTrigger(hand);
+      else this.onTrigger(hand);
+    }
+    if (up(TRIGGER)) this.onButtonUp(hand, 'trigger');
     if (down(BUTTON_LOWER)) {
       if (isOff) this.editor.undo();
       else if (this.editor.selectedId) snapToFloor(this.editor, this.sync, this.editor.selectedId);
@@ -313,7 +362,7 @@ export class XREditor {
     hand.prev = pad.buttons.map((b) => b.pressed);
   }
 
-  /** Raycasts against the menu, scene objects and floor; updates the ray length, reticle and menu hover. */
+  /** Raycasts against the menu, scene objects, camera-path keys and floor; updates the ray, reticle and menu hover. */
   private cast(hand: Hand): void {
     const ray = hand.slot.ray;
     ray.updateMatrixWorld();
@@ -324,6 +373,7 @@ export class XREditor {
 
     hand.menuUv = null;
     hand.hitObject = null;
+    hand.hitKey = null;
     hand.hitPoint = null;
     hand.floorPoint = this.raycaster.ray.intersectPlane(floorPlane, new Vector3());
     let dist = Infinity;
@@ -341,9 +391,15 @@ export class XREditor {
     if (hoverId && hoverId !== hand.hoverId) this.pulse(hand, 0.15, 12);
     hand.hoverId = hoverId;
 
-    if (!hand.menuUv && !hand.grab) {
+    if (!hand.menuUv && !hand.grab && this.holder !== hand) {
+      const keyHit = this.keyPath.group.visible ? this.raycaster.intersectObject(this.keyPath.markers, true)[0] : undefined;
       const hit = this.raycaster.intersectObjects(this.sync.pickRoots, true)[0];
-      if (hit) {
+      // Keys are small and sit on the path: prefer them when they are about as close as the object behind.
+      if (keyHit && (!hit || keyHit.distance <= hit.distance + 0.05)) {
+        hand.hitKey = this.keyPath.keyIndexOf(keyHit.object);
+        hand.hitPoint = keyHit.point;
+        dist = keyHit.distance;
+      } else if (hit) {
         hand.hitObject = this.sync.objectIdOf(hit.object);
         hand.hitPoint = hit.point;
         dist = hit.distance;
@@ -353,9 +409,10 @@ export class XREditor {
     }
 
     const material = hand.line.material as LineBasicMaterial;
-    material.color.set(hand.menuUv ? 0xffffff : hand.hitObject ? 0x7cc4ff : 0xffb547);
+    material.color.set(hand.menuUv ? 0xffffff : hand.hitKey !== null ? 0xffb547 : hand.hitObject ? 0x7cc4ff : 0xffb547);
     hand.line.scale.z = Math.min(dist, RAY_LENGTH);
-    const point = hand.hitPoint ?? (!hand.menuUv && this.pathMode ? hand.floorPoint : null);
+    const placing = this.pathMode && this.pathFor !== CAMERA_ID;
+    const point = placing && !hand.menuUv ? hand.floorPoint : hand.hitPoint;
     if (point && !hand.grab) {
       hand.reticle.position.copy(point);
       hand.reticle.position.y += 0.005;
@@ -363,40 +420,89 @@ export class XREditor {
     }
   }
 
+  /** Grabbed key, else a key under a ray, else the key picked in the menu. */
+  private updateKeyHighlight(): void {
+    const grabbed = this.hands.find((h) => h.grab && h.grab.key !== null)?.grab?.key;
+    this.keyPath.highlight(grabbed ?? this.hands.find((h) => h.hitKey !== null)?.hitKey ?? this.menu.selectedKey);
+  }
+
   private onTrigger(hand: Hand): void {
     if (hand.menuUv) {
       if (this.menu.click(hand.menuUv)) this.pulse(hand, 0.5, 25);
       return;
     }
-    const sel = this.editor.selected;
-    if (this.pathMode && sel?.actor && hand.floorPoint) {
-      const p: Vec3 = [round(hand.floorPoint.x), 0, round(hand.floorPoint.z)];
-      this.editor.update(sel.id, (o) => o.actor!.waypoints.push(p));
+    if (this.placeWaypoint(hand)) {
+      this.pulse(hand, 0.5, 25);
       return;
     }
-    this.editor.select(hand.hitObject);
+    if (this.canGrab(hand)) {
+      this.startGrab(hand, 'trigger', false);
+      if (hand.grab) this.pulse(hand, 0.4, 30);
+      return;
+    }
+    this.editor.select(null);
   }
 
-  private onSqueeze(hand: Hand, triggerHeld: boolean): void {
-    const other = this.hands.find((h) => h !== hand && h.grab);
-    if (other?.grab && other.grab.id !== CAMERA_ID && (!hand.hitObject || hand.hitObject === other.grab.id)) {
-      const root = this.sync.rootOf(other.grab.id);
-      if (!root) return;
-      this.scaling = { id: other.grab.id, d0: this.handDistance(), s0: root.scale.clone() };
+  /** Path mode on an object: adds a waypoint where the ray meets the floor. */
+  private placeWaypoint(hand: Hand): boolean {
+    const sel = this.editor.selected;
+    if (!this.pathMode || !sel || sel.id !== this.pathFor || !hand.floorPoint) return false;
+    const { x, z } = hand.floorPoint;
+    this.editor.update(sel.id, (o) => editPath(o).waypoints.push(waypointAt(o, x, z)));
+    return true;
+  }
+
+  /** Trigger or pinch on the hand holding the camera: drop a keyframe while drawing a path, else record. */
+  private holderTrigger(hand: Hand): void {
+    if (this.pathMode && this.pathFor === CAMERA_ID) {
+      if (this.takes.busy) return;
+      this.editor.addCameraKey();
+      this.editor.begin(); // keep holding as one continuous edit
+      this.pulse(hand, 0.6, 40);
       return;
     }
-    if (!hand.hitObject || this.playback.playing || this.takes.busy) return;
-    const root = this.sync.rootOf(hand.hitObject);
-    if (!root) return;
-    this.editor.select(hand.hitObject);
+    this.takes.toggleRecord();
+    this.pulse(hand, 0.8, 60);
+  }
+
+  private canGrab(hand: Hand): boolean {
+    return !!hand.hitObject || hand.hitKey !== null || this.hands.some((h) => h !== hand && h.grab);
+  }
+
+  /** Grabs what the ray points at, or (second hand, while the other grabs an object) starts scaling it. */
+  private startGrab(hand: Hand, button: Button, freeRotation: boolean): void {
+    const other = this.hands.find((h) => h !== hand && h.grab)?.grab;
+    if (other?.id && other.id !== CAMERA_ID && hand.hitKey === null && (!hand.hitObject || hand.hitObject === other.id)) {
+      const root = this.sync.rootOf(other.id);
+      if (root) this.scaling = { id: other.id, d0: this.handDistance(), s0: root.scale.clone(), hand, button };
+      return;
+    }
+    if (this.playback.playing || this.takes.busy) return;
+    let target: Object3D | undefined;
+    let id: string | null = null;
+    const key = hand.hitKey;
+    if (key !== null) {
+      target = this.keyPath.marker(key);
+      this.menu.selectedKey = key;
+    } else if (hand.hitObject) {
+      id = hand.hitObject;
+      target = this.sync.rootOf(id);
+      this.editor.select(id);
+    }
+    if (!target) return;
     this.editor.begin();
     hand.grab = {
-      id: hand.hitObject,
+      id,
+      key,
+      target,
+      button,
       offset: new Matrix4(),
-      free: triggerHeld || hand.hitObject === CAMERA_ID,
+      free: freeRotation || id === CAMERA_ID || key !== null,
       startQuat: new Quaternion(),
       startYaw: 0,
       twist: 0,
+      startRay: hand.slot.ray.matrixWorld.clone(),
+      dragging: false,
     };
     this.rebaseGrab(hand);
   }
@@ -404,19 +510,22 @@ export class XREditor {
   /** Recomputes the grab offset from the current controller and object poses. */
   private rebaseGrab(hand: Hand): void {
     const g = hand.grab;
-    const root = g ? this.sync.rootOf(g.id) : undefined;
-    if (!g || !root) return;
-    root.updateMatrixWorld();
-    g.offset.copy(hand.slot.ray.matrixWorld).invert().multiply(root.matrixWorld);
-    g.startQuat.copy(root.quaternion);
+    if (!g) return;
+    g.target.updateMatrixWorld();
+    g.offset.copy(hand.slot.ray.matrixWorld).invert().multiply(g.target.matrixWorld);
+    g.startQuat.copy(g.target.quaternion);
     g.startYaw = this.yawOf(hand.slot.ray.matrixWorld);
     g.twist = 0;
   }
 
   private updateGrab(hand: Hand, ax: number, ay: number, dt: number): void {
     const g = hand.grab!;
-    const root = this.sync.rootOf(g.id);
-    if (!root || this.scaling) return;
+    const root = g.target;
+    if (this.scaling) return;
+    if (!g.dragging) {
+      if (!ax && !ay && !this.movedFrom(g.startRay, hand.slot.ray.matrixWorld)) return;
+      g.dragging = true;
+    }
     if (ay) g.offset.premultiply(this.m2.makeTranslation(0, 0, ay * PUSH_SPEED * dt));
     if (ax) g.twist -= ax * TWIST_SPEED * dt;
 
@@ -430,7 +539,27 @@ export class XREditor {
       const yaw = this.yawOf(hand.slot.ray.matrixWorld) - g.startYaw + g.twist;
       root.quaternion.setFromAxisAngle(UP, yaw).multiply(g.startQuat);
     }
-    this.editor.setTransform(g.id, readTransform(root), true);
+    if (g.key !== null) {
+      const i = g.key;
+      const p = root.position.toArray().map(round) as Vec3;
+      const q = root.quaternion.toArray() as Quat;
+      this.editor.transient((d) => {
+        const k = d.camera.keyframes[i];
+        if (!k) return;
+        k.position = p;
+        k.rotation = q;
+      });
+    } else if (g.id) {
+      this.editor.setTransform(g.id, readTransform(root), true);
+    }
+  }
+
+  /** True once the hand has moved or turned past the drag thresholds since `start`. */
+  private movedFrom(start: Matrix4, now: Matrix4): boolean {
+    if (this.v.setFromMatrixPosition(start).distanceTo(this.v2.setFromMatrixPosition(now)) > DRAG_START_METRES) return true;
+    this.q.setFromRotationMatrix(this.m2.extractRotation(start));
+    this.q2.setFromRotationMatrix(this.m2.extractRotation(now));
+    return this.q.angleTo(this.q2) > DRAG_START_RADIANS;
   }
 
   private updateScaling(): void {
@@ -442,13 +571,23 @@ export class XREditor {
     this.editor.setTransform(this.scaling.id, readTransform(root), true);
   }
 
-  private onRelease(hand: Hand): void {
-    if (this.scaling && !hand.grab) {
-      // Second hand let go: keep scaling result, continue the one-hand grab from here.
+  /** A button came up: ends the scaling or grab it started. */
+  private onButtonUp(hand: Hand, button: Button): void {
+    if (this.scaling?.hand === hand && this.scaling.button === button) {
+      // Second hand let go: keep the scaling result, continue the one-hand grab from here.
       this.scaling = null;
       const holder = this.hands.find((h) => h.grab);
       if (holder) this.rebaseGrab(holder);
       return;
+    }
+    if (hand.grab?.button === button) this.releaseHand(hand);
+  }
+
+  private releaseHand(hand: Hand): void {
+    if (this.scaling?.hand === hand) {
+      this.scaling = null;
+      const holder = this.hands.find((h) => h.grab);
+      if (holder) this.rebaseGrab(holder);
     }
     if (!hand.grab) return;
     this.scaling = null;
@@ -457,8 +596,9 @@ export class XREditor {
   }
 
   private releaseAll(): void {
-    for (const h of this.hands) if (h.grab) this.onRelease(h);
+    for (const h of this.hands) this.releaseHand(h);
     this.scaling = null;
+    if (this.pathMode) this.setPathMode(false);
     if (this.holder) this.toggleHold(this.holder);
   }
 
@@ -467,6 +607,7 @@ export class XREditor {
     if (this.holder) {
       this.holder = null;
       this.editor.commit();
+      if (this.pathMode && this.pathFor === CAMERA_ID) this.setPathMode(false);
     } else {
       if (hand.grab || this.playback.playing || this.takes.state === 'playing') return;
       this.holder = hand;
@@ -496,6 +637,28 @@ export class XREditor {
     this.q.setFromAxisAngle(UP, yaw);
     this.editor.setTransform(CAMERA_ID, { position: pos, rotation: this.q.toArray() as Transform['rotation'], scale: [1, 1, 1] });
     this.editor.select(CAMERA_ID);
+  }
+
+  /** Moves the user next to an object (or the camera), turned to face it. */
+  private goTo(id: string): void {
+    const root = this.sync.rootOf(id);
+    if (!root) return;
+    root.updateMatrixWorld(true);
+    const box = new Box3().setFromObject(root);
+    const target = box.isEmpty() ? new Vector3().setFromMatrixPosition(root.matrixWorld) : box.getCenter(new Vector3());
+    const radius = box.isEmpty() ? 0 : box.getSize(this.v2).length() / 2;
+    const head = new Vector3().setFromMatrixPosition(this.app.camera.matrixWorld);
+    const dir = new Vector3(head.x - target.x, 0, head.z - target.z);
+    if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
+    dir.normalize();
+    // Turn about the head so the object is straight ahead, then step to GO_TO_DISTANCE (or more for big things).
+    const rig = this.app.rig;
+    const angle = Math.atan2(dir.x, dir.z) - this.yawOf(this.app.camera.matrixWorld);
+    rig.position.sub(head).applyAxisAngle(UP, angle).add(head);
+    rig.rotateOnWorldAxis(UP, angle);
+    const d = Math.max(GO_TO_DISTANCE, radius * 2);
+    rig.position.x += target.x + dir.x * d - head.x;
+    rig.position.z += target.z + dir.z * d - head.z;
   }
 
   private locomote(ax: number, ay: number, dt: number): void {

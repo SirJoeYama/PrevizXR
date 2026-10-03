@@ -203,7 +203,7 @@ function helpContent(): HTMLElement {
       keyRow(['Ctrl', 'D'], 'Duplicate'),
       keyRow(['Del'], 'Delete'),
       keyRow(['Ctrl', 'Z'], 'Undo · Ctrl+Y redo'),
-      keyRow(['P'], 'Draw an actor path · Esc ends'),
+      keyRow(['P'], 'Draw a path for the selection · Esc ends'),
       keyRow(['Ctrl', 'V'], 'Paste an image as a reference plane'),
     ]),
     table('Shots', [
@@ -214,10 +214,10 @@ function helpContent(): HTMLElement {
       keyRow(['?'], 'This help'),
     ]),
     table('VR controllers', [
-      keyRow(['Trigger'], 'Select, press menu buttons, place waypoints'),
+      keyRow(['Trigger'], 'Select · hold to drag · press menu buttons · place waypoints'),
       keyRow(['Grip'], 'Grab (stays upright) · + trigger: free rotate · both: scale'),
       keyRow(['Stick'], 'Walk (off hand) · snap turn (pointer hand)'),
-      keyRow(['Stick click'], 'Hold the camera · stick up/down zooms · trigger records'),
+      keyRow(['Stick click'], 'Hold the camera · stick up/down zooms · trigger records (or drops a path key)'),
       keyRow(['A', 'B'], 'Snap to floor · menu'),
       keyRow(['X', 'Y'], 'Undo · redo'),
     ]),

@@ -1,7 +1,7 @@
 import type { Takes } from '../app/Takes';
 import { formatTime } from '../camera/guides';
 import type { Editor } from '../model/Editor';
-import { CAMERA_ID, type CameraKey, type Quat, type Vec3 } from '../model/scene';
+import type { CameraKey } from '../model/scene';
 import { el, isTyping, section, setValue } from './dom';
 
 /** Record, play, smooth, rename, import and export takes (R records). */
@@ -207,23 +207,12 @@ export class CameraPathPanel {
     return this.editor.doc.camera.keyframes;
   }
 
-  private cameraKey(time: number): CameraKey {
-    const { position, rotation } = this.editor.doc.camera.transform;
-    return { time, position: [...position] as Vec3, rotation: [...rotation] as Quat, focalLength: this.editor.doc.camera.lens.focalLength };
-  }
-
   private addKey(): void {
-    if (this.takes.busy) return;
-    const keys = this.keys;
-    const time = keys.length ? Math.round((keys[keys.length - 1].time + 2) * 100) / 100 : 0;
-    this.editor.edit((d) => d.camera.keyframes.push(this.cameraKey(time)));
+    if (!this.takes.busy) this.editor.addCameraKey();
   }
 
   private setKeys(mutate: (keys: CameraKey[]) => void): void {
-    this.editor.edit((d) => {
-      mutate(d.camera.keyframes);
-      d.camera.keyframes.sort((a, b) => a.time - b.time);
-    });
+    this.editor.editKeys(mutate);
   }
 
   private render(): void {
@@ -256,10 +245,7 @@ export class CameraPathPanel {
                 text: '⌖',
                 title: 'Move the camera to this key',
                 'aria-label': `Go to keyframe ${i + 1}`,
-                onclick: () => {
-                  this.editor.setTransform(CAMERA_ID, { position: [...k.position], rotation: [...k.rotation], scale: [1, 1, 1] });
-                  this.editor.updateLens((l) => (l.focalLength = k.focalLength));
-                },
+                onclick: () => this.editor.goToKey(i),
               }),
               el('button', {
                 class: 'icon-btn',
@@ -267,7 +253,7 @@ export class CameraPathPanel {
                 text: '⟳',
                 title: 'Replace this key with the current camera',
                 'aria-label': `Update keyframe ${i + 1} from the camera`,
-                onclick: () => this.setKeys((ks) => (ks[i] = this.cameraKey(k.time))),
+                onclick: () => this.setKeys((ks) => (ks[i] = this.editor.cameraKey(k.time))),
               }),
               el('button', { class: 'icon-btn', type: 'button', text: '✕', 'aria-label': `Delete keyframe ${i + 1}`, onclick: () => this.setKeys((ks) => ks.splice(i, 1)) }),
             );

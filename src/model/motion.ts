@@ -1,5 +1,5 @@
-import { quatFromYaw } from './math';
-import type { ActorClip, ActorSettings, Quat, SceneObject, Vec3 } from './scene';
+import { multiplyQuat, quatFromYaw } from './math';
+import { pathOf, type ActorClip, type MotionPath, type Quat, type SceneObject, type Vec3 } from './scene';
 
 export interface PathSample {
   /** World position on the floor path. */
@@ -11,10 +11,10 @@ export interface PathSample {
 }
 
 /**
- * Deterministic position of an actor at time t (seconds) along the polyline start → waypoints.
+ * Deterministic position of an object at time t (seconds) along the polyline start → waypoints.
  * Pure function of its inputs: playback, recording and rendering all evaluate the same pose for the same t.
  */
-export function samplePath(start: Vec3, actor: Pick<ActorSettings, 'waypoints' | 'speed' | 'loop'>, t: number): PathSample {
+export function samplePath(start: Vec3, actor: Readonly<MotionPath>, t: number): PathSample {
   const points = [start, ...actor.waypoints];
   if (points.length < 2 || actor.speed <= 0 || t <= 0) {
     return { position: [...start], heading: points.length >= 2 ? yawBetween(points[0], points[1]) : null, moving: false };
@@ -78,20 +78,26 @@ export interface ObjectPose {
 
 /**
  * Deterministic pose at time t. Actors with waypoints follow their path facing the direction of travel,
- * and switch from walk/run to idle when they arrive. Everything else stays at its scene transform.
+ * and switch from walk/run to idle when they arrive. Props and lights with a path keep their own
+ * orientation and turn with the path at each corner. Everything else stays at its scene transform.
  */
 export function objectPoseAt(obj: SceneObject, t: number): ObjectPose {
   const { position, rotation, scale } = obj.transform;
   const pose: ObjectPose = { p: [...position], q: [...rotation], s: [...scale] };
   const actor = obj.actor;
+  const path = pathOf(obj);
+  let moving = false;
+  if (path?.waypoints.length) {
+    const s = samplePath(position, path, t);
+    pose.p = s.position;
+    moving = s.moving;
+    if (s.heading !== null) {
+      pose.q = actor ? quatFromYaw(s.heading) : multiplyQuat(quatFromYaw(s.heading - yawBetween(position, path.waypoints[0])), rotation);
+    }
+  }
   if (!actor) return pose;
   let clip = actor.clip;
-  if (actor.waypoints.length) {
-    const s = samplePath(position, actor, t);
-    pose.p = s.position;
-    if (s.heading !== null) pose.q = quatFromYaw(s.heading);
-    if (!s.moving && t > 0 && (clip === 'walk' || clip === 'run')) clip = 'idle';
-  }
+  if (actor.waypoints.length && !moving && t > 0 && (clip === 'walk' || clip === 'run')) clip = 'idle';
   pose.clip = clip;
   pose.t = t;
   return pose;

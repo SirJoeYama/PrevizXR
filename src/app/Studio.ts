@@ -24,6 +24,8 @@ export class Studio {
   readonly xrEditor: XREditor;
   readonly camera: VirtualCamera;
   readonly cameraView: CameraView;
+  /** Camera-path line and keyframe markers. */
+  readonly keyPath: KeyframePath;
   readonly takes: Takes;
   private rendererPromise: Promise<TakeRenderer> | null = null;
 
@@ -35,17 +37,16 @@ export class Studio {
     this.camera = new VirtualCamera(app, this.editor, this.sync);
     this.takes = new Takes(this.editor, this.sync, this.playback, this.camera);
     this.desktopEditor = new DesktopEditor(app, this.editor, this.sync, this.playback);
-    this.xrEditor = new XREditor(app, this.editor, this.sync, this.playback, this.camera, this.takes);
+    this.keyPath = new KeyframePath(this.editor);
+    app.scene.add(this.keyPath.group);
+    app.addEditorOnly(this.keyPath.group);
+    this.xrEditor = new XREditor(app, this.editor, this.sync, this.playback, this.camera, this.takes, this.keyPath);
     this.cameraView = new CameraView(app, this.editor, this.camera);
     this.desktopEditor.suspended = () => this.cameraView.throughCamera || this.takes.busy;
     this.desktopEditor.onSpace = () => (this.takes.busy ? this.takes.stop() : this.playback.toggle());
     this.cameraView.locked = () => this.takes.state === 'playing';
     this.cameraView.onChange(() => this.desktopEditor.refresh());
     this.takes.onChange(() => this.desktopEditor.refresh());
-
-    const path = new KeyframePath(this.editor);
-    app.scene.add(path.group);
-    app.addEditorOnly(path.group);
 
     // Everything the shot must never show.
     app.addEditorOnly(this.sync.helpers);

@@ -1,7 +1,7 @@
 import { Euler, Quaternion } from 'three';
 import type { DesktopEditor } from '../desktop/DesktopEditor';
 import type { Editor } from '../model/Editor';
-import { ACTOR_CLIPS, CAMERA_ID, DEFAULT_SPEED, type SceneObject, type Transform } from '../model/scene';
+import { ACTOR_CLIPS, CAMERA_ID, DEFAULT_SPEED, editPath, pathOf, type SceneObject, type Transform } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { el, section, setValue } from './dom';
 import { icon } from './icons';
@@ -92,7 +92,8 @@ export class InspectorPanel {
         action('Delete (Del)', 'trash', () => this.editor.remove(id), true),
       ),
       fields,
-      obj.actor ? this.actorFields(id, updaters) : null,
+      obj.actor ? this.clipField(id, updaters) : null,
+      this.pathFields(id, updaters),
       obj.light ? this.lightFields(id, updaters) : null,
       hiddenRow,
       obj.asset.source === 'poly' ? el('p', { class: 'hint', text: `“${obj.asset.title}” by ${obj.asset.creator}, ${obj.asset.licence}` }) : null,
@@ -194,7 +195,7 @@ export class InspectorPanel {
     this.refresh = () => updaters.forEach((u) => u());
   }
 
-  private actorFields(id: string, updaters: Array<() => void>): HTMLElement {
+  private clipField(id: string, updaters: Array<() => void>): HTMLElement {
     const clip = el('select', {
       class: 'input',
       'aria-label': 'Animation clip',
@@ -205,6 +206,15 @@ export class InspectorPanel {
           if (DEFAULT_SPEED[c] > 0) o.actor!.speed = DEFAULT_SPEED[c];
         }),
     }, ...ACTOR_CLIPS.map((c) => el('option', { value: c, text: c[0].toUpperCase() + c.slice(1) })));
+    updaters.push(() => {
+      const a = this.editor.find(id)?.actor;
+      if (a) setValue(clip, a.clip);
+    });
+    return el('label', { class: 'field' }, el('span', { class: 'field-label', text: 'Clip' }), clip);
+  }
+
+  /** Waypoint path: actors walk it; props and lights travel it at their own height. */
+  private pathFields(id: string, updaters: Array<() => void>): HTMLElement {
     const speed = el('input', {
       class: 'input num',
       type: 'number',
@@ -213,23 +223,23 @@ export class InspectorPanel {
       'aria-label': 'Path speed (metres per second)',
       onchange: () => {
         const v = parseFloat(speed.value);
-        if (Number.isFinite(v) && v >= 0) this.editor.update(id, (o) => (o.actor!.speed = v));
+        if (Number.isFinite(v) && v >= 0) this.editor.update(id, (o) => (editPath(o).speed = v));
       },
     });
-    const loop = el('input', { type: 'checkbox', onchange: () => this.editor.update(id, (o) => (o.actor!.loop = loop.checked)) });
+    const loop = el('input', { type: 'checkbox', onchange: () => this.editor.update(id, (o) => (editPath(o).loop = loop.checked)) });
     const pathBtn = el('button', {
       class: 'btn',
       type: 'button',
       title: 'Click the floor to add waypoints (P, Esc to finish)',
       onclick: () => this.desktop.setPathMode(!this.desktop.pathMode),
     });
-    const clearBtn = el('button', { class: 'btn', type: 'button', onclick: () => this.editor.update(id, (o) => (o.actor!.waypoints = [])) });
-    const undoPoint = el('button', { class: 'btn', type: 'button', text: '− Last', title: 'Remove the last waypoint', onclick: () => this.editor.update(id, (o) => o.actor!.waypoints.pop()) });
+    const clearBtn = el('button', { class: 'btn', type: 'button', onclick: () => this.editor.update(id, (o) => (editPath(o).waypoints = [])) });
+    const undoPoint = el('button', { class: 'btn', type: 'button', text: '− Last', title: 'Remove the last waypoint', onclick: () => this.editor.update(id, (o) => editPath(o).waypoints.pop()) });
 
     updaters.push(() => {
-      const a = this.editor.find(id)?.actor;
-      if (!a) return;
-      setValue(clip, a.clip);
+      const obj = this.editor.find(id);
+      if (!obj) return;
+      const a = pathOf(obj) ?? editPath(structuredClone(obj));
       setValue(speed, String(a.speed));
       loop.checked = a.loop;
       pathBtn.textContent = this.desktop.pathMode ? 'Done drawing' : 'Draw path';
@@ -241,7 +251,7 @@ export class InspectorPanel {
     return el(
       'div',
       { class: 'stack' },
-      el('label', { class: 'field' }, el('span', { class: 'field-label', text: 'Clip' }), clip),
+      el('span', { class: 'field-label', text: 'Path' }),
       el('label', { class: 'field' }, el('span', { class: 'field-label', text: 'Speed m/s' }), speed),
       el('div', { class: 'row three' }, pathBtn, undoPoint, clearBtn),
       el('label', { class: 'check' }, loop, ' Loop path back to start'),

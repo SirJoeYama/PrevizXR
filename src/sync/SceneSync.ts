@@ -27,7 +27,7 @@ import {
 import type { AssetLoader } from '../assets/AssetLoader';
 import type { Editor } from '../model/Editor';
 import { objectPoseAt, type ObjectPose } from '../model/motion';
-import { assetKey, type ActorClip, type SceneObject } from '../model/scene';
+import { assetKey, pathOf, type ActorClip, type SceneObject } from '../model/scene';
 import { drawLabel, makeLabel } from './labels';
 
 interface Entry {
@@ -337,9 +337,9 @@ export class SceneSync {
   }
 
   private updatePath(e: Entry, obj: SceneObject): void {
-    const actor = obj.actor;
-    const points = actor && actor.waypoints.length ? [obj.transform.position, ...actor.waypoints] : [];
-    if (actor?.loop && points.length) points.push(obj.transform.position);
+    const path = pathOf(obj);
+    const points = path && path.waypoints.length ? [obj.transform.position, ...path.waypoints] : [];
+    if (path?.loop && points.length) points.push(obj.transform.position);
     const sig = `${obj.color}|${JSON.stringify(points)}`;
     if (sig === e.pathSig) return;
     e.pathSig = sig;
@@ -355,7 +355,7 @@ export class SceneSync {
     group.add(line);
     const dotGeo = new SphereGeometry(0.06, 12, 8);
     const dotMat = new MeshBasicMaterial({ color: obj.color });
-    actor!.waypoints.forEach((w) => {
+    path!.waypoints.forEach((w) => {
       const dot = new Mesh(dotGeo, dotMat);
       dot.position.set(w[0], w[1] + 0.06, w[2]);
       dot.raycast = () => {};

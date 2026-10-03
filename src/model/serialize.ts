@@ -1,5 +1,5 @@
 import { ASPECTS, FPS_OPTIONS, SENSORS, clampFocal } from '../camera/lens';
-import { ACTOR_CLIPS, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
+import { ACTOR_CLIPS, DEFAULT_MOTION_SPEED, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type MotionPath, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
 
 export class SceneFormatError extends Error {}
 
@@ -83,11 +83,19 @@ function parseObject(o: unknown, i: number): SceneObject {
   if (obj.actor) {
     const a = obj.actor;
     if (!ACTOR_CLIPS.includes(a.clip)) a.clip = 'idle';
-    if (typeof a.speed !== 'number' || !Number.isFinite(a.speed)) a.speed = 1.3;
-    if (!Array.isArray(a.waypoints) || !a.waypoints.every((w) => isNums(w, 3))) a.waypoints = [];
-    a.loop = !!a.loop;
+    repairPath(a, 1.3);
+  }
+  if (obj.motion !== undefined) {
+    if (obj.actor || !isObj(obj.motion)) delete obj.motion;
+    else repairPath(obj.motion, DEFAULT_MOTION_SPEED);
   }
   return obj;
+}
+
+function repairPath(p: MotionPath, defaultSpeed: number): void {
+  if (typeof p.speed !== 'number' || !Number.isFinite(p.speed)) p.speed = defaultSpeed;
+  if (!Array.isArray(p.waypoints) || !p.waypoints.every((w) => isNums(w, 3))) p.waypoints = [];
+  p.loop = !!p.loop;
 }
 
 function safeJson(text: string): unknown {

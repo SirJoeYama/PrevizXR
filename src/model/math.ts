@@ -41,6 +41,18 @@ export function quatFromYaw(yaw: number): Quat {
   return [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)];
 }
 
+/** Hamilton product a × b (apply b, then a). */
+export function multiplyQuat(a: Quat, b: Quat): Quat {
+  const [ax, ay, az, aw] = a;
+  const [bx, by, bz, bw] = b;
+  return [
+    ax * bw + aw * bx + ay * bz - az * by,
+    ay * bw + aw * by + az * bx - ax * bz,
+    az * bw + aw * bz + ax * by - ay * bx,
+    aw * bw - ax * bx - ay * by - az * bz,
+  ];
+}
+
 /** Uniform Catmull-Rom spline through p1→p2 with neighbours p0 and p3. */
 export function catmullRom(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: number): Vec3 {
   const t2 = t * t;
