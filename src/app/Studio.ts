@@ -56,6 +56,23 @@ export class Studio {
       app.addEditorOnly(slot.hand);
     }
 
+    // Adaptive quality in VR: step the camera monitor down while the headset misses its frame rate.
+    let perfTimer = 0;
+    let goodChecks = 0;
+    app.xrSession.addEventListener('change', () => this.camera.setMonitorQuality(app.xrSession.presenting ? 1 : 0));
+    app.onFrame((dt) => {
+      if (app.renderer.xr.isPresenting && (perfTimer += dt) > 2) {
+        perfTimer = 0;
+        if (app.fps < 66) {
+          this.camera.setMonitorQuality(this.camera.monitorQuality + 1);
+          goodChecks = 0;
+        } else if (app.fps > 71 && ++goodChecks >= 3 && this.camera.monitorQuality > 1) {
+          this.camera.setMonitorQuality(this.camera.monitorQuality - 1);
+          goodChecks = 0;
+        }
+      }
+    });
+
     app.onFrame((dt) => {
       this.xrEditor.update(dt);
       this.playback.tick(dt);

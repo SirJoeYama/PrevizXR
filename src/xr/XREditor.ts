@@ -16,6 +16,7 @@ import type { App } from '../app/App';
 import { clampFocal } from '../camera/lens';
 import type { VirtualCamera } from '../camera/VirtualCamera';
 import type { Playback } from '../app/Playback';
+import { MENU_SIZES, dominantHand, onPrefs, prefs } from '../app/prefs';
 import type { Takes } from '../app/Takes';
 import { spawn, type Spawnable } from '../app/spawn';
 import { readTransform, snapToFloor } from '../interaction/ops';
@@ -69,13 +70,26 @@ interface Hand {
   hitPoint: Vector3 | null;
   menuUv: Vector2 | null;
   floorPoint: Vector3 | null;
+  /** Tracked hands: index–thumb pinch (the input source's select), current and previous frame. */
+  pinch: boolean;
+  prevPinch: boolean;
+  /** Menu region under this hand's ray, for hover haptics. */
+  hoverId: string | null;
 }
 
+const MENU_ON_CONTROLLER = { position: new Vector3(0, 0.12, -0.06), rotationX: -Math.PI / 5 };
+/** With tracked hands the menu floats in front of the user: this far ahead and this far below the eyes. */
+const HAND_MENU_DISTANCE = 0.45;
+const HAND_MENU_DROP = 0.18;
+
 /**
- * VR editing with Quest controllers:
- * trigger = select / press menu buttons / place waypoints, grip = grab (both grips = scale),
- * thumbsticks = move (left) and snap turn (right), or push/pull and twist while grabbing.
- * A = object to floor, B = show/hide menu, X = undo, Y = redo.
+ * VR editing.
+ * Controllers (dominant = right unless left-handed mode): trigger = select / press menu buttons / place
+ * waypoints, grip = grab (both grips = scale), off-hand stick = move, dominant stick = snap turn (or
+ * push/pull and twist while grabbing), dominant stick click = hold the camera (trigger then records),
+ * dominant A/B = to floor / menu, off-hand X/Y = undo / redo. The menu rides on the off-hand controller.
+ * Tracked hands: pinch = trigger; pinch on an object and hold = grab; pinch with both = scale;
+ * off-hand pinch on empty space = show/hide a menu floating in front of you.
  */
 export class XREditor {
   readonly menu: VRMenu;
@@ -107,9 +121,11 @@ export class XREditor {
     this.takes = takes;
     this.menu = new VRMenu(editor, playback, takes, {
       isHoldingCamera: () => this.holder !== null,
-      toggleHoldCamera: () => this.toggleHold(this.hands.find((h) => h.slot.handedness === 'right') ?? this.hands[1]),
+      toggleHoldCamera: () => this.toggleHold(this.dominant() ?? this.hands[1]),
       bringCamera: () => this.bringCamera(),
       focusDistance: () => this.vcam.focusDistance,
+      fps: () => this.app.fps,
+      monitorQuality: () => this.vcam.monitorQuality,
       spawn: (item) => this.spawnInFront(item),
       isPathMode: () => this.pathMode,
       setPathMode: (on) => this.setPathMode(on),
@@ -118,8 +134,11 @@ export class XREditor {
       },
     });
     this.menu.mesh.visible = false;
-    this.menu.mesh.position.set(0, 0.12, -0.06);
-    this.menu.mesh.rotation.x = -Math.PI / 5;
+    onPrefs(() => {
+      this.menu.mesh.scale.setScalar(MENU_SIZES[prefs.menuSize]);
+      this.menu.invalidate();
+    });
+    this.menu.mesh.scale.setScalar(MENU_SIZES[prefs.menuSize]);
 
     const reticleGeo = new RingGeometry(0.012, 0.02, 24).rotateX(-Math.PI / 2);
     this.hands = app.xrInput.slots.map((slot) => {
@@ -131,7 +150,15 @@ export class XREditor {
       reticle.visible = false;
       app.scene.add(reticle);
       app.addEditorOnly(reticle);
-      return { slot, prev: [], line, reticle, grab: null, hitObject: null, hitPoint: null, menuUv: null, floorPoint: null };
+      const hand: Hand = { slot, prev: [], line, reticle, grab: null, hitObject: null, hitPoint: null, menuUv: null, floorPoint: null, pinch: false, prevPinch: false, hoverId: null };
+      // Hands report pinches as the input source's select events (controllers too, but those use the gamepad).
+      slot.ray.addEventListener('selectstart', () => (hand.pinch = true));
+      slot.ray.addEventListener('selectend', () => (hand.pinch = false));
+      slot.ray.addEventListener('disconnected', () => {
+        hand.pinch = false;
+        if (hand.grab) this.onRelease(hand);
+      });
+      return hand;
     });
 
     editor.subscribe((c) => {
@@ -150,24 +177,101 @@ export class XREditor {
   update(dt: number): void {
     if (!this.app.renderer.xr.isPresenting) return;
     this.attachMenu();
-    for (const hand of this.hands) this.updateHand(hand, dt);
+    for (const hand of this.hands) {
+      if (hand.slot.connected && hand.slot.isHand) this.updateTrackedHand(hand, dt);
+      else this.updateHand(hand, dt);
+    }
     this.updateScaling();
     this.menu.update();
   }
 
+  /** The dominant-hand slot, if connected. */
+  private dominant(): Hand | undefined {
+    return this.hands.find((h) => h.slot.connected && h.slot.handedness === dominantHand());
+  }
+
+  private isOffHand(hand: Hand): boolean {
+    return hand.slot.handedness !== dominantHand();
+  }
+
+  /** On the off-hand controller when there is one; otherwise (tracked hands) floating in the world. */
   private attachMenu(): void {
-    const left = this.hands.find((h) => h.slot.connected && h.slot.handedness === 'left' && !h.slot.isHand);
-    const parent = left?.slot.grip ?? null;
-    if (this.menu.mesh.parent !== parent) {
-      if (parent) parent.add(this.menu.mesh);
-      else this.menu.mesh.removeFromParent();
+    const mesh = this.menu.mesh;
+    const off = this.hands.find((h) => h.slot.connected && !h.slot.isHand && this.isOffHand(h));
+    if (off) {
+      if (mesh.parent !== off.slot.grip) {
+        off.slot.grip.add(mesh);
+        mesh.position.copy(MENU_ON_CONTROLLER.position);
+        mesh.rotation.set(MENU_ON_CONTROLLER.rotationX, 0, 0);
+      }
+    } else if (mesh.parent && mesh.parent !== this.app.scene) {
+      mesh.removeFromParent();
+      mesh.visible = false;
     }
+  }
+
+  /** Shows the floating menu in front of the user (tracked hands), or hides it. */
+  private toggleWorldMenu(): void {
+    const mesh = this.menu.mesh;
+    if (mesh.visible && mesh.parent === this.app.scene) {
+      mesh.visible = false;
+      return;
+    }
+    const head = this.v.setFromMatrixPosition(this.app.camera.matrixWorld);
+    const yaw = this.yawOf(this.app.camera.matrixWorld);
+    this.app.scene.add(mesh);
+    mesh.position.set(head.x - Math.sin(yaw) * HAND_MENU_DISTANCE, head.y - HAND_MENU_DROP, head.z - Math.cos(yaw) * HAND_MENU_DISTANCE);
+    mesh.rotation.set(-0.35, yaw, 0, 'YXZ');
+    mesh.visible = true;
+  }
+
+  /** Short vibration on controllers (no-op for hands or when haptics are off). */
+  private pulse(hand: Hand, intensity: number, ms: number): void {
+    if (!prefs.haptics) return;
+    const actuator = hand.slot.gamepad?.hapticActuators?.[0] as { pulse?: (v: number, d: number) => unknown } | undefined;
+    void actuator?.pulse?.(intensity, ms);
+  }
+
+  /** Tracked hand: pinch is the only button. */
+  private updateTrackedHand(hand: Hand, dt: number): void {
+    hand.line.visible = true;
+    hand.reticle.visible = false;
+    this.cast(hand);
+    const down = hand.pinch && !hand.prevPinch;
+    const up = !hand.pinch && hand.prevPinch;
+    hand.prevPinch = hand.pinch;
+    if (down) this.onPinch(hand);
+    if (up) this.onRelease(hand);
+    if (this.holder === hand) this.updateHold(hand, 0, dt);
+    else if (hand.grab) this.updateGrab(hand, 0, 0, dt);
+  }
+
+  private onPinch(hand: Hand): void {
+    if (hand.menuUv) {
+      this.menu.click(hand.menuUv);
+      return;
+    }
+    if (this.holder === hand) {
+      this.takes.toggleRecord();
+      return;
+    }
+    const other = this.hands.find((h) => h !== hand && h.grab);
+    if (hand.hitObject || other) {
+      this.onSqueeze(hand, false); // grab, or scale with the other hand
+      return;
+    }
+    if (this.pathMode && hand.floorPoint) {
+      this.onTrigger(hand);
+      return;
+    }
+    if (this.isOffHand(hand)) this.toggleWorldMenu();
+    else this.editor.select(null);
   }
 
   private updateHand(hand: Hand, dt: number): void {
     const { slot } = hand;
     const pad = slot.gamepad;
-    const active = slot.connected && !slot.isHand && !!pad;
+    const active = slot.connected && !!pad;
     hand.line.visible = active;
     hand.reticle.visible = false;
     if (!active || !pad) return;
@@ -176,21 +280,26 @@ export class XREditor {
     const pressed = (i: number) => !!pad.buttons[i]?.pressed;
     const down = (i: number) => pressed(i) && !hand.prev[i];
     const up = (i: number) => !pressed(i) && !!hand.prev[i];
-    const isLeft = slot.handedness === 'left';
+    const isOff = this.isOffHand(hand);
 
     const holding = this.holder === hand;
-    if (down(STICK_PRESS) && !isLeft) this.toggleHold(hand);
-    if (down(SQUEEZE) && !holding) this.onSqueeze(hand, pressed(TRIGGER));
+    if (down(STICK_PRESS) && !isOff) this.toggleHold(hand);
+    if (down(SQUEEZE) && !holding) {
+      this.onSqueeze(hand, pressed(TRIGGER));
+      if (hand.grab) this.pulse(hand, 0.4, 30);
+    }
     if (up(SQUEEZE)) this.onRelease(hand);
     // Holding the camera, the trigger is the record button (unless pointing at the menu).
-    if (down(TRIGGER) && holding && !hand.menuUv) this.takes.toggleRecord();
-    else if (down(TRIGGER) && !hand.grab) this.onTrigger(hand);
+    if (down(TRIGGER) && holding && !hand.menuUv) {
+      this.takes.toggleRecord();
+      this.pulse(hand, 0.8, 60);
+    } else if (down(TRIGGER) && !hand.grab) this.onTrigger(hand);
     if (down(BUTTON_LOWER)) {
-      if (isLeft) this.editor.undo();
+      if (isOff) this.editor.undo();
       else if (this.editor.selectedId) snapToFloor(this.editor, this.sync, this.editor.selectedId);
     }
     if (down(BUTTON_UPPER)) {
-      if (isLeft) this.editor.redo();
+      if (isOff) this.editor.redo();
       else this.menu.mesh.visible = !this.menu.mesh.visible;
     }
 
@@ -198,7 +307,7 @@ export class XREditor {
     const ay = dz(pad.axes[AXIS_Y] ?? 0);
     if (holding) this.updateHold(hand, ay, dt);
     else if (hand.grab) this.updateGrab(hand, ax, ay, dt);
-    else if (isLeft) this.locomote(ax, ay, dt);
+    else if (isOff) this.locomote(ax, ay, dt);
     else this.snapTurn(ax);
 
     hand.prev = pad.buttons.map((b) => b.pressed);
@@ -228,6 +337,9 @@ export class XREditor {
       }
     }
     this.menu.pointer(this.hands.find((h) => h.menuUv)?.menuUv ?? null);
+    const hoverId = hand.menuUv ? this.menu.hitId(hand.menuUv) : null;
+    if (hoverId && hoverId !== hand.hoverId) this.pulse(hand, 0.15, 12);
+    hand.hoverId = hoverId;
 
     if (!hand.menuUv && !hand.grab) {
       const hit = this.raycaster.intersectObjects(this.sync.pickRoots, true)[0];
@@ -253,7 +365,7 @@ export class XREditor {
 
   private onTrigger(hand: Hand): void {
     if (hand.menuUv) {
-      this.menu.click(hand.menuUv);
+      if (this.menu.click(hand.menuUv)) this.pulse(hand, 0.5, 25);
       return;
     }
     const sel = this.editor.selected;

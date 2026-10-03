@@ -1,4 +1,6 @@
+import { MENU_SIZES, onPrefs, prefs, setPrefs, type MenuSize } from '../app/prefs';
 import type { Studio } from '../app/Studio';
+import { announce } from './announce';
 import type { XRSupport } from '../xr/XRSessionManager';
 import { AddPanel } from './AddPanel';
 import { CameraPanel } from './CameraPanel';
@@ -46,7 +48,7 @@ export class Sidebar {
 
     root.replaceChildren(
       el('div', { class: 'brand' }, el('img', { src: `${import.meta.env.BASE_URL}favicon.svg`, alt: '' }), el('h1', { text: 'PrevizXR' })),
-      section('Virtual reality', 'sb-vr', this.vrButton, this.vrHint),
+      section('Virtual reality', 'sb-vr', this.vrButton, this.vrHint, this.vrSettings()),
       new ScenePanel(editor, studio.project).root,
       new AddPanel((item) => studio.spawnDesktop(item)).root,
       new InspectorPanel(editor, studio.sync, studio.desktopEditor).root,
@@ -94,6 +96,12 @@ export class Sidebar {
       ),
     );
 
+    this.announceChanges();
+    document.querySelector<HTMLAnchorElement>('.skip-link')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      app.renderer.domElement.focus();
+    });
+
     const count = root.querySelector<HTMLElement>('[data-ref="count"]')!;
     const refreshCount = () => (count.textContent = String(editor.doc.objects.length));
     editor.subscribe((c) => c === 'doc' && refreshCount());
@@ -107,6 +115,69 @@ export class Sidebar {
       this.fpsEl.textContent = app.fps > 0 ? app.fps.toFixed(0) : '–';
       if (playback.playing) this.timeEl.textContent = `${playback.time.toFixed(1)} s`;
     }, 250);
+  }
+
+  /** Handedness, menu size and vibration for VR (saved on this device). */
+  private vrSettings(): HTMLElement {
+    const left = el('input', { type: 'checkbox', onchange: () => setPrefs({ leftHanded: left.checked }) });
+    const haptics = el('input', { type: 'checkbox', onchange: () => setPrefs({ haptics: haptics.checked }) });
+    const size = el(
+      'select',
+      { class: 'input', 'aria-label': 'VR menu size', onchange: () => setPrefs({ menuSize: size.value as MenuSize }) },
+      ...(Object.keys(MENU_SIZES) as MenuSize[]).map((s) => el('option', { value: s, text: s[0].toUpperCase() + s.slice(1) })),
+    );
+    const sync = () => {
+      left.checked = prefs.leftHanded;
+      haptics.checked = prefs.haptics;
+      size.value = prefs.menuSize;
+    };
+    onPrefs(sync);
+    sync();
+    return el(
+      'details',
+      { class: 'settings' },
+      el('summary', { text: 'VR settings' }),
+      el(
+        'div',
+        { class: 'stack' },
+        el('label', { class: 'check' }, left, ' Left-handed (point and hold the camera with the left hand)'),
+        el('label', { class: 'check' }, haptics, ' Controller vibration'),
+        el('label', { class: 'field' }, el('span', { class: 'field-label', text: 'Menu size' }), size),
+      ),
+    );
+  }
+
+  /** Screen-reader announcements for changes that happen away from the focused control. */
+  private announceChanges(): void {
+    const { editor, takes } = this.studio;
+    let sceneId = editor.doc.id;
+    let names = new Map(editor.doc.objects.map((o) => [o.id, o.name]));
+    editor.subscribe((c) => {
+      if (c !== 'doc') return;
+      const now = new Map(editor.doc.objects.map((o) => [o.id, o.name]));
+      if (editor.doc.id !== sceneId) {
+        sceneId = editor.doc.id;
+        announce(`Opened scene ${editor.doc.name}, ${now.size} objects`);
+      } else {
+        const added = [...now].filter(([id]) => !names.has(id)).map(([, n]) => n);
+        const removed = [...names].filter(([id]) => !now.has(id)).map(([, n]) => n);
+        if (added.length) announce(`Added ${added.join(', ')}`);
+        else if (removed.length) announce(`Removed ${removed.join(', ')}`);
+      }
+      names = now;
+    });
+    let state = takes.state;
+    takes.onChange(() => {
+      if (takes.state === state) return;
+      const was = state;
+      state = takes.state;
+      if (state === 'countdown') announce('Recording starts in 3 seconds');
+      else if (state === 'recording') announce('Recording');
+      else if (state === 'playing') announce(`Playing ${takes.current?.name ?? 'take'}`);
+      else if (was === 'recording') announce('Recording stopped, take saved');
+      else if (was === 'countdown') announce('Recording canceled');
+      else announce('Stopped');
+    });
   }
 
   private async onVrClick(): Promise<void> {

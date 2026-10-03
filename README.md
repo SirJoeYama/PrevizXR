@@ -6,10 +6,9 @@ Runs entirely in the browser: Meta Quest 3 for capture, and desktop Chrome/Edge 
 
 **Live:** https://sirjoeyama.github.io/PrevizXR/
 
-![PrevizXR screenshot](docs/screenshot.svg)
-<!-- Screenshot placeholder: replace docs/screenshot.svg with a real capture -->
+![PrevizXR: actors and props with name labels, a keyframed camera path, and the virtual camera's monitor with frame guides](docs/screenshot.jpg)
 
-> **Status:** early development. Milestones 1–6 of 7 are done: scene building in VR and on desktop, a 2,000+ model library, a virtual camera with real lens controls, take recording and playback, and rendering five frame-synced passes plus the camera into one bundle. See the [roadmap](#roadmap).
+> **Status:** all seven milestones are done: scene building in VR and on desktop, a 2,000+ model library, a virtual camera with real lens controls, take recording and playback, five frame-synced render passes plus camera export in one bundle, hand tracking, and Quest performance tuning. Feedback and pull requests are welcome. See the [roadmap](#roadmap).
 
 ## Features
 
@@ -105,7 +104,44 @@ The menu's **Takes** tab records, plays and loops takes. The monitor shows the c
 
 The menu's **Camera** tab has focal presets, sensor, aspect, fps, guides and focus, plus **Bring here** to fetch the camera. Grabbing the camera with grip rotates it freely, unlike props, which stay upright. The monitor on top of the camera shows exactly what it records.
 
+### VR (hand tracking, no controllers)
+
+| Gesture | Action |
+| --- | --- |
+| Pinch (index + thumb) pointing at the menu | Press a button or add an object |
+| Pinch on an object and hold | Grab and move it (it stays upright); release to drop |
+| Pinch with the other hand while grabbing | Scale the object |
+| Pinch on the floor while drawing a path | Add a waypoint |
+| Off-hand pinch on empty space | Show or hide the menu (it floats in front of you) |
+| Pointer-hand pinch while holding the camera | Record a take, or stop |
+
+Use the menu's Camera tab to hold the camera, zoom (±) and bring it to you. Walk physically, since hands have no thumbsticks.
+
+### Settings and accessibility
+
+- **Left-handed mode** (VR menu → Settings, or the sidebar's *VR settings*): the left hand points, picks and holds the camera, and the menu moves to the right controller (with it the X/Y and A/B roles swap hands).
+- **Menu size:** small, medium or large.
+- **Controller vibration** confirms hovering, clicking, grabbing and recording; it can be turned off.
+- **Desktop:** everything in the sidebar is reachable by keyboard, with visible focus. Category tabs follow the WAI-ARIA tabs pattern (arrow keys, Home/End). A *Skip to the 3D viewport* link comes first. Screen readers hear added and removed objects, undo/redo, gizmo and path modes, and recording state through a polite live region. Dialogs trap focus, and Esc closes them (except while rendering, where Cancel is explicit).
+
 The menu's **Library** tab has one-tap searches (chair, car, tree, …) because there's no keyboard in VR. Use the desktop sidebar to search the full library by name.
+
+## Performance on Quest
+
+PrevizXR targets the Quest 3's 72 Hz:
+
+- The session asks for 72 Hz and the strongest fixed foveation.
+- The camera's monitor is the main extra cost (a second render of the scene). In VR it starts at 512 px, every other frame. If the headset drops below about 66 fps, it steps down to 384 px every third frame, then 256 px every fourth, and steps back up when there is headroom. The VR menu header shows the live frame rate, and Settings shows the current monitor quality.
+- Autofocus raycasts five times a second in VR; selection bounds update a few times a second.
+- Keep scenes to a few dozen objects for best results; large library models (high polygon counts) cost the most. Rendering passes is a desktop job and doesn't run in the headset.
+
+## Troubleshooting
+
+- **"Enter VR" is disabled:** the page needs HTTPS or localhost and a WebXR browser (Quest Browser, or desktop Chrome/Edge with the Immersive Web Emulator).
+- **A model shows as a red box:** it failed to load (offline, or the Poly Pizza CDN was unreachable). Check the console and reload.
+- **Render gives a PNG zip instead of MP4:** this browser can't encode H.264 at that size. Use Chrome or Edge, or a lower resolution.
+- **Rendering seems slow in the background:** it isn't throttled; large PNG renders are mostly zip/PNG CPU time. MP4 renders run at about real time at 1080p on a desktop GPU.
+- **Scenes disappeared:** scenes and takes live in this browser's storage (IndexedDB). Export important scenes and takes as JSON; clearing site data deletes them.
 
 ## Feeding passes into AI video tools
 
@@ -133,7 +169,7 @@ Tips:
 4. ✅ Take recording and playback
 5. ✅ Render mode with clay, color_id and depth to MP4
 6. ✅ Normals and pose passes, camera export, zip bundle
-7. Polish: Quest performance (72 fps), docs, menu accessibility, hand tracking
+7. ✅ Polish: Quest performance (72 fps), docs, menu accessibility, hand tracking
 
 ## Contributing
 

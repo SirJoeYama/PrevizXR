@@ -60,6 +60,8 @@ export class XRSessionManager extends EventDispatcher<XRSessionEvents> {
     });
     await this.renderer.xr.setSession(session);
     this.session = session;
+    // Quest can run 72/90/120 Hz; ask for 72 so the app has the most time per frame.
+    if (session.supportedFrameRates?.includes(72)) await session.updateTargetFrameRate?.(72).catch(() => {});
     this.dispatchEvent({ type: 'change' });
   }
 }

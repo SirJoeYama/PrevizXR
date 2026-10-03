@@ -81,6 +81,7 @@ export class SceneSync {
   /** Precise bounds (skinned meshes included), refreshed every frame for the selected object. */
   private readonly selectionBox = new Box3Helper(this.selectionBounds, 0xffb547);
   private previewTime: number | null = null;
+  private frame = 0;
   /** Poses from a take being played back, by object id (overrides model and preview). */
   private takePoses: Record<string, ObjectPose> | null = null;
 
@@ -161,8 +162,11 @@ export class SceneSync {
       if (e.mixer && this.previewTime === null && !this.takePoses) e.mixer.update(dt);
       this.placeLabel(e);
     }
-    const sel = this.editor.selectedId ? this.entries.get(this.editor.selectedId)?.root : undefined;
-    if (sel) this.selectionBounds.setFromObject(sel, true);
+    // Precise bounds walk every vertex (skinned ones on the CPU): refresh a few times a second, not every frame.
+    if (++this.frame % 6 === 0) {
+      const sel = this.editor.selectedId ? this.entries.get(this.editor.selectedId)?.root : undefined;
+      if (sel) this.selectionBounds.setFromObject(sel, true);
+    }
   }
 
   private reconcile(): void {

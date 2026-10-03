@@ -47,10 +47,10 @@ export class RenderDialog {
     const saved = readSettings();
     this.shortSide = saved.shortSide;
     this.formatChoice = saved.format;
-    this.formatGroup = el('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'File format' });
+    this.formatGroup = el('div', { class: 'seg', role: 'group', 'aria-label': 'File format' });
 
     this.takeSelect = el('select', { class: 'input', id: 'render-take', onchange: () => void this.selectTake(this.takeSelect.value) });
-    this.resGroup = el('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Resolution' });
+    this.resGroup = el('div', { class: 'seg', role: 'group', 'aria-label': 'Resolution' });
     const passList = el(
       'div',
       { class: 'stack' },
@@ -150,10 +150,8 @@ export class RenderDialog {
         el('button', {
           type: 'button',
           class: 'seg-btn',
-          role: 'radio',
           text: label,
           title,
-          'aria-checked': String(this.formatChoice === f),
           'aria-pressed': String(this.formatChoice === f),
           onclick: () => {
             this.formatChoice = f;
@@ -174,10 +172,8 @@ export class RenderDialog {
         return el('button', {
           type: 'button',
           class: 'seg-btn',
-          role: 'radio',
           text: `${s}p`,
           title: `${width} × ${height}`,
-          'aria-checked': String(this.shortSide === s),
           'aria-pressed': String(this.shortSide === s),
           onclick: () => {
             this.shortSide = s;

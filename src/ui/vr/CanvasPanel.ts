@@ -80,6 +80,11 @@ export abstract class CanvasPanel {
     }
   }
 
+  /** Id of the clickable region under a UV, if any. */
+  hitId(uv: Vector2): string | null {
+    return this.hit(uv)?.id ?? null;
+  }
+
   click(uv: Vector2): boolean {
     const r = this.hit(uv);
     if (!r) return false;

@@ -6,6 +6,7 @@ import { deleteSelected, duplicateSelected, readTransform, snapToFloor } from '.
 import type { Editor } from '../model/Editor';
 import type { Vec3 } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
+import { announce } from '../ui/announce';
 
 export type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -85,13 +86,16 @@ export class DesktopEditor {
   }
 
   setMode(mode: GizmoMode): void {
+    if (mode !== this.gizmo.mode) announce({ translate: 'Move', rotate: 'Rotate', scale: 'Scale' }[mode] + ' mode');
     this.gizmo.setMode(mode);
     this.gizmo.setSpace(mode === 'translate' ? 'world' : 'local');
     this.emit();
   }
 
   setPathMode(on: boolean): void {
+    const was = this.pathMode;
     this.pathMode = on && this.editor.selected?.kind === 'actor';
+    if (this.pathMode !== was) announce(this.pathMode ? 'Drawing path: click the floor to add waypoints, Escape to finish' : 'Path drawing off');
     this.app.renderer.domElement.style.cursor = this.pathMode ? 'crosshair' : '';
     this.emit();
   }
@@ -163,10 +167,10 @@ export class DesktopEditor {
     const key = e.key.toLowerCase();
 
     if (mod && key === 'z') {
-      if (e.shiftKey) this.editor.redo();
-      else this.editor.undo();
+      if (e.shiftKey) this.redo();
+      else this.undo();
     } else if (mod && key === 'y') {
-      this.editor.redo();
+      this.redo();
     } else if (mod && key === 'd') {
       duplicateSelected(this.editor);
     } else if (mod) {
@@ -194,6 +198,18 @@ export class DesktopEditor {
       return;
     }
     e.preventDefault();
+  }
+
+  private undo(): void {
+    if (!this.editor.canUndo) return announce('Nothing to undo');
+    this.editor.undo();
+    announce('Undone');
+  }
+
+  private redo(): void {
+    if (!this.editor.canRedo) return announce('Nothing to redo');
+    this.editor.redo();
+    announce('Redone');
   }
 
   private emit(): void {

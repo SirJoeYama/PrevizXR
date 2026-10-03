@@ -53,7 +53,15 @@ export class App {
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType('local-floor');
+    // Strongest fixed foveation: lower resolution in the periphery, a big win on Quest.
+    this.renderer.xr.setFoveation(1);
     this.renderer.domElement.tabIndex = 0;
+    this.renderer.domElement.setAttribute('role', 'application');
+    this.renderer.domElement.setAttribute('aria-roledescription', '3D viewport');
+    this.renderer.domElement.setAttribute(
+      'aria-label',
+      '3D scene. Use the sidebar to add and edit objects; with this view focused, W A S D moves, Q and E go down and up, and the shortcuts listed in the sidebar apply.',
+    );
     container.appendChild(this.renderer.domElement);
 
     this.scene.background = new Color(0x1b1e24);

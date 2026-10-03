@@ -2,6 +2,7 @@ import { BUNDLED, CATEGORIES, type Category } from '../../assets/catalog';
 import { loadPolyLibrary, polyAssetRef, polyThumbUrl, searchPoly, type PolyEntry } from '../../assets/polyLibrary';
 import type { Playback } from '../../app/Playback';
 import type { Takes } from '../../app/Takes';
+import { MENU_SIZES, prefs, setPrefs, type MenuSize } from '../../app/prefs';
 import { formatTime } from '../../camera/guides';
 import type { Spawnable } from '../../app/spawn';
 import type { Editor } from '../../model/Editor';
@@ -18,9 +19,12 @@ export interface VRMenuHost {
   toggleHoldCamera(): void;
   bringCamera(): void;
   focusDistance(): number | null;
+  fps(): number;
+  /** Camera monitor quality level (0 = best); stepped automatically in VR. */
+  monitorQuality(): number;
 }
 
-type Tab = Category | 'library' | 'camera' | 'takes';
+type Tab = Category | 'library' | 'camera' | 'takes' | 'settings';
 
 const W = 768;
 const H = 1280;
@@ -48,6 +52,7 @@ export class VRMenu extends CanvasPanel {
   private readonly images = new Map<string, HTMLImageElement>();
   private shownFocus: number | null | undefined;
   private takesPage = 0;
+  private shownFps = -1;
 
   constructor(
     private readonly editor: Editor,
@@ -63,6 +68,11 @@ export class VRMenu extends CanvasPanel {
   }
 
   override update(): void {
+    const fps = Math.round(this.host.fps());
+    if (fps !== this.shownFps) {
+      this.shownFps = fps;
+      this.invalidate();
+    }
     // Countdown and timers tick without events: redraw every frame while busy on the Takes tab.
     if (this.tab === 'takes' && this.takes.busy) this.invalidate();
     if (this.tab === 'camera') {
@@ -85,13 +95,16 @@ export class VRMenu extends CanvasPanel {
     c.fill();
 
     this.text('PrevizXR', PAD, 40, { size: 30, weight: 700, color: PANEL_COLORS.active });
-    this.text(this.editor.doc.name, W - PAD, 40, { size: 22, color: PANEL_COLORS.muted, align: 'right', maxWidth: 420 });
+    const fps = Math.round(this.host.fps());
+    this.text(`${fps} fps`, W - PAD, 40, { size: 22, align: 'right', color: fps > 0 && fps < 66 ? PANEL_COLORS.danger : PANEL_COLORS.muted });
+    this.text(this.editor.doc.name, W - PAD - 110, 40, { size: 22, color: PANEL_COLORS.muted, align: 'right', maxWidth: 380 });
 
     const tabs: Array<{ id: Tab; label: string }> = [
       { id: 'camera', label: 'Camera' },
       { id: 'takes', label: 'Takes' },
       ...CATEGORIES,
       { id: 'library', label: 'Library' },
+      { id: 'settings', label: 'Settings' },
     ];
     const perRow = 6;
     const tabW = (W - PAD * 2 - 8 * (perRow - 1)) / perRow;
@@ -106,6 +119,8 @@ export class VRMenu extends CanvasPanel {
       this.drawCamera(gridTop);
     } else if (this.tab === 'takes') {
       this.drawTakes(gridTop);
+    } else if (this.tab === 'settings') {
+      this.drawSettings(gridTop);
     } else {
       if (this.tab === 'library') gridTop = this.drawLibraryPresets(gridTop);
       this.drawGrid(this.tiles(), gridTop, 836 - gridTop);
@@ -271,6 +286,59 @@ export class VRMenu extends CanvasPanel {
     this.button('bring', 'Bring here', PAD + bw3 + 8, y, bw3, 52, () => this.host.bringCamera(), { disabled: holding, size: 22 });
     this.button('selcam', 'Select', PAD + (bw3 + 8) * 2, y, bw3, 52, () => this.editor.select('camera'), { active: this.editor.cameraSelected, size: 22 });
     this.text('Right stick click: hold/let go · stick up/down: zoom', W / 2, y + 76, { size: 18, color: PANEL_COLORS.muted, align: 'center' });
+  }
+
+  private drawSettings(top: number): void {
+    const inner = W - PAD * 2;
+    let y = top;
+    const row = (label: string, options: Array<[string, boolean, () => void]>) => {
+      this.text(label, PAD, y + 26, { size: 22, color: PANEL_COLORS.muted });
+      const x0 = PAD + 190;
+      const bw = (inner - 190 - 8 * (options.length - 1)) / options.length;
+      options.forEach(([text, active, onClick], i) => this.button(`set-${label}-${i}`, text, x0 + i * (bw + 8), y, bw, 52, () => {
+        onClick();
+        this.invalidate();
+      }, { active, size: 22 }));
+      y += 66;
+    };
+    row('Pointer hand', [
+      ['Right', !prefs.leftHanded, () => setPrefs({ leftHanded: false })],
+      ['Left', prefs.leftHanded, () => setPrefs({ leftHanded: true })],
+    ]);
+    row('Menu size', (Object.keys(MENU_SIZES) as MenuSize[]).map((s) => [s[0].toUpperCase() + s.slice(1), prefs.menuSize === s, () => setPrefs({ menuSize: s })]));
+    row('Vibration', [
+      ['On', prefs.haptics, () => setPrefs({ haptics: true })],
+      ['Off', !prefs.haptics, () => setPrefs({ haptics: false })],
+    ]);
+    const q = this.host.monitorQuality();
+    this.text(`Monitor quality: ${['best', 'high', 'medium', 'low'][q] ?? q} (adjusts automatically to hold 72 fps)`, PAD, y + 20, { size: 20, color: PANEL_COLORS.muted, maxWidth: inner });
+    y += 56;
+    const lines = [
+      'The pointer hand points, picks and holds the camera; the other hand carries this menu, walks (stick) and undoes (X/Y).',
+      'Hands without controllers: pinch to click or grab, pinch with both hands to scale, pinch the other hand on empty space to show or hide this menu.',
+    ];
+    for (const l of lines) {
+      this.wrapText(l, PAD, y, inner, 20);
+      y += 76;
+    }
+  }
+
+  /** Simple word wrap for help text (up to 3 lines). */
+  private wrapText(text: string, x: number, y: number, maxWidth: number, size: number): void {
+    const c = this.ctx;
+    c.font = `500 ${size}px system-ui, sans-serif`;
+    const words = text.split(' ');
+    let line = '';
+    let ly = y;
+    for (const w of words) {
+      const next = line ? `${line} ${w}` : w;
+      if (c.measureText(next).width > maxWidth && line) {
+        this.text(line, x, ly, { size, color: PANEL_COLORS.muted });
+        line = w;
+        ly += size * 1.3;
+      } else line = next;
+    }
+    if (line) this.text(line, x, ly, { size, color: PANEL_COLORS.muted });
   }
 
   private drawTakes(top: number): void {

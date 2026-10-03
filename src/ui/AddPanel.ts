@@ -17,7 +17,7 @@ export class AddPanel {
 
   constructor(private readonly onSpawn: (item: Spawnable) => void) {
     this.tabs = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Object categories' });
-    this.grid = el('div', { class: 'tile-grid', role: 'list' });
+    this.grid = el('div', { class: 'tile-grid', role: 'list', id: 'add-panel-grid', 'aria-label': 'Objects to add' });
     this.search = el('input', {
       class: 'input',
       type: 'search',
@@ -32,29 +32,39 @@ export class AddPanel {
     this.renderGrid();
   }
 
-  private renderTabs(): void {
+  private renderTabs(focus = false): void {
     const tabs: Array<{ id: Tab; label: string }> = [...CATEGORIES, { id: 'library', label: 'Library' }];
-    this.tabs.replaceChildren(
-      ...tabs.map((t) =>
-        el('button', {
-          class: 'tab',
-          type: 'button',
-          role: 'tab',
-          text: t.label,
-          'aria-selected': String(this.tab === t.id),
-          onclick: () => this.setTab(t.id),
-        }),
-      ),
+    const index = tabs.findIndex((t) => t.id === this.tab);
+    const buttons = tabs.map((t) =>
+      el('button', {
+        class: 'tab',
+        type: 'button',
+        role: 'tab',
+        text: t.label,
+        'aria-selected': String(this.tab === t.id),
+        'aria-controls': 'add-panel-grid',
+        tabindex: this.tab === t.id ? '0' : '-1',
+        onclick: () => this.setTab(t.id),
+        onkeydown: (e: KeyboardEvent) => {
+          const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+          const next = step !== undefined ? (index + step + tabs.length) % tabs.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1;
+          if (next < 0) return;
+          e.preventDefault();
+          this.setTab(tabs[next].id, true);
+        },
+      }),
     );
+    this.tabs.replaceChildren(...buttons);
+    if (focus) buttons[index].focus();
   }
 
-  private setTab(tab: Tab): void {
+  private setTab(tab: Tab, fromKeyboard = false): void {
     this.tab = tab;
     this.search.hidden = tab !== 'library';
-    this.renderTabs();
+    this.renderTabs(fromKeyboard);
     this.renderGrid();
     if (tab === 'library') {
-      this.search.focus();
+      if (!fromKeyboard) this.search.focus();
       void this.ensureLibrary();
     }
   }

@@ -29,8 +29,18 @@ import { ASPECTS, verticalFovDeg } from './lens';
 
 const MONITOR_SIZE = 0.2; // metres, longest side
 const MONITOR_PIXELS = 640; // render target, longest side
+/**
+ * Monitor quality levels: [longest side in pixels, render every Nth frame].
+ * Desktop uses level 0; in VR the governor starts at 1 and steps down while the headset misses 72 fps.
+ */
+export const MONITOR_LEVELS: ReadonlyArray<[number, number]> = [
+  [640, 2],
+  [512, 2],
+  [384, 3],
+  [256, 4],
+];
 const FRUSTUM_LENGTH = 1.2; // metres
-const AUTOFOCUS_INTERVAL = 0.1; // seconds
+const AUTOFOCUS_INTERVAL = 0.1; // seconds (doubled in VR: raycasting skinned actors costs CPU)
 const floorPlane = new Plane(new Vector3(0, 1, 0), 0);
 
 /**
@@ -59,6 +69,7 @@ export class VirtualCamera {
   private readonly frustum: LineSegments;
   private readonly raycaster = new Raycaster();
   private overlaySig = '';
+  private quality = 0;
   private lensSig = '';
   private focusTimer = 0;
   private frame = 0;
@@ -121,6 +132,19 @@ export class VirtualCamera {
     return this.editor.doc.camera;
   }
 
+  get monitorQuality(): number {
+    return this.quality;
+  }
+
+  /** Sets a MONITOR_LEVELS index (resolution and update rate of the monitor). */
+  setMonitorQuality(level: number): void {
+    const q = Math.max(0, Math.min(MONITOR_LEVELS.length - 1, level));
+    if (q === this.quality) return;
+    this.quality = q;
+    this.lensSig = '';
+    this.apply();
+  }
+
   /** Focal length in use right now (the take's while one plays back). */
   get focalLength(): number {
     return this.override?.focal ?? this.rig.lens.focalLength;
@@ -152,7 +176,8 @@ export class VirtualCamera {
     const [mw, mh] = aspect >= 1 ? [MONITOR_SIZE, MONITOR_SIZE / aspect] : [MONITOR_SIZE * aspect, MONITOR_SIZE];
     for (const m of [this.monitor, this.overlay, this.monitor.userData.frame as Mesh]) m.scale.set(mw, mh, 1);
     (this.monitor.userData.frame as Mesh).scale.set(mw + 0.012, mh + 0.012, 1);
-    const [pw, ph] = aspect >= 1 ? [MONITOR_PIXELS, Math.round(MONITOR_PIXELS / aspect)] : [Math.round(MONITOR_PIXELS * aspect), MONITOR_PIXELS];
+    const px = MONITOR_LEVELS[this.quality][0];
+    const [pw, ph] = aspect >= 1 ? [px, Math.round(px / aspect)] : [Math.round(px * aspect), px];
     this.target.setSize(pw, ph);
     this.overlayCanvas.width = pw;
     this.overlayCanvas.height = ph;
@@ -164,13 +189,13 @@ export class VirtualCamera {
   update(dt: number): void {
     this.focusTimer -= dt;
     if (this.focusTimer <= 0 && !this.override) {
-      this.focusTimer = AUTOFOCUS_INTERVAL;
+      this.focusTimer = this.app.renderer.xr.isPresenting ? AUTOFOCUS_INTERVAL * 2 : AUTOFOCUS_INTERVAL;
       this.focusDistance = this.rig.lens.focusMode === 'manual' ? this.rig.lens.focusDistance : this.measureFocus();
     }
     this.drawOverlay();
     // The monitor renders at half the display rate: plenty for framing, and cheaper on Quest.
     this.frame++;
-    if (this.monitorEnabled && this.body.visible && this.frame % 2 === 0) {
+    if (this.monitorEnabled && this.body.visible && this.frame % MONITOR_LEVELS[this.quality][1] === 0) {
       this.root.updateMatrixWorld(true);
       this.app.renderClean(this.camera, this.target);
     }
