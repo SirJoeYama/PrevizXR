@@ -8,6 +8,7 @@ import {
   M2M_FAMILIES,
   M2M_PROP_LIST,
   clipLabel,
+  fitClips,
   isOneShotClip,
   m2mCatalogItems,
   m2mClipFile,
@@ -46,6 +47,17 @@ describe('Mesh2Motion catalog', () => {
     expect(m2mClipFile(human, 'Salute')).toBe('human-mocap-animations.glb');
     expect(m2mClipFile(human, 'Nope')).toBeUndefined();
     expect(m2mResolveClip(M2M_FAMILIES.kaiju, 'run')).toBe('Walk'); // no run clip: falls back to walk
+  });
+
+  it('fits clips to a model: rotations plus the tracking bone, scaled for its height', () => {
+    const track = (name: string, values: number[]) => ({ name, values: Float32Array.from(values), clone() { return track(name, [...this.values]); } });
+    const clip = { name: 'Walk', tracks: [track('pelvis.position', [0, 1, 0]), track('spine_01.position', [0, 0.1, 0]), track('spine_01.quaternion', [0, 0, 0, 1]), track('spine_01.scale', [1, 1, 1]), track('root.position', [0, 0, 2])] };
+    const [fitted] = fitClips([clip], 'pelvis', 1.5, (c, tracks) => ({ ...c, tracks }));
+    expect(fitted.tracks.map((t) => t.name)).toEqual(['pelvis.position', 'spine_01.quaternion']);
+    expect([...fitted.tracks[0].values]).toEqual([0, 1.5, 0]);
+    expect([...clip.tracks[0].values]).toEqual([0, 1, 0]); // source untouched
+    const [fox] = fitClips([{ name: 'Run', tracks: [track('Hips.position', [0, 2, 0]), track('Head.position', [1, 1, 1])] }], 'hips', 1, (c, tracks) => ({ ...c, tracks }));
+    expect(fox.tracks.map((t) => t.name)).toEqual(['Hips.position']); // case-insensitive bone match
   });
 
   it('tells one-shot clips from loops', () => {

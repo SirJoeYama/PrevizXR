@@ -67,7 +67,7 @@ Regenerate the index with `npm run catalog` (one request to the public profile p
 
 Characters, animations and props from [Mesh2Motion](https://github.com/Mesh2Motion/mesh2motion-app) (art **CC0** unless noted below). Nothing is bundled: files load from jsDelivr at a pinned commit of `Mesh2Motion/mesh2motion-app` (see `M2M_COMMIT` in `src/assets/mesh2motionData.ts`). Placed objects store their title, author and licence in the scene file.
 
-- **Actors** (Add → Actors): 28 human characters that share Mesh2Motion's 66-bone human skeleton, so every human clip plays on every one of them: 80 base clips, 69 add-on clips and 16 motion-capture clips (root-motion duplicates are left out). Add-on and mocap files load the first time one of their clips is used. Taller or shorter variations scale the pelvis motion as Mesh2Motion does, so feet stay on the ground.
+- **Actors** (Add → Actors): 28 human characters that share Mesh2Motion's 66-bone human skeleton, so every human clip plays on every one of them: 80 base clips, 69 add-on clips and 16 motion-capture clips (root-motion duplicates are left out). Add-on and mocap files load the first time one of their clips is used. Clips are fitted to each model the way Mesh2Motion does it: only bone rotations plus the pelvis (or hips) position are applied, so every character keeps its own bone lengths, and taller or shorter variations scale the pelvis motion so feet stay on the ground.
 - **Animals** (Add → Animals): fox, dog, cat, panda, seagull, eagle, lizard, T-Rex, shark, whale, horse, dragon, giant spider and snake, each with its family's clips.
 - **Props** (Add → Props): 44 weapons, tools, shields and bows at their authored size.
 

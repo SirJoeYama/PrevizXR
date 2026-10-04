@@ -21,8 +21,11 @@ export interface M2MFamily {
   groups: string[];
   /** Which library clip plays for each basic clip (missing: walk falls back to idle, run to walk, sit to idle). */
   roles: Partial<Record<BasicClip, string>>;
-  /** Bone whose position track is scaled for taller or shorter variations of the same rig. */
-  pelvisBone?: string;
+  /**
+   * The one bone whose position the clips drive (pelvis or hips; the snake's head). Every other bone keeps the
+   * model's own bone lengths, so clips fit each variation's proportions (Mesh2Motion's `position_tracking_bone_name`).
+   */
+  trackingBone: string;
 }
 
 export const M2M_FAMILIES: Record<M2MFamilyId, M2MFamily> = {
@@ -31,16 +34,16 @@ export const M2M_FAMILIES: Record<M2MFamilyId, M2MFamily> = {
     animations: ['human-base-animations.glb', 'human-addon-animations.glb', 'human-mocap-animations.glb'],
     groups: ['Base', 'Add-on', 'Mocap'],
     roles: { idle: 'Idle_A', walk: 'Walk', run: 'Jog', sit: 'Sitting_Idle' },
-    pelvisBone: 'pelvis',
+    trackingBone: 'pelvis',
   },
-  fox: { id: 'fox', animations: ['fox-animations.glb'], groups: ['Quadruped'], roles: { idle: 'Idle', walk: 'Walk', run: 'Run', sit: 'Sit' } },
-  bird: { id: 'bird', animations: ['bird-animations.glb'], groups: ['Bird'], roles: { idle: 'Idle', walk: 'Walk', run: 'Flap' } },
-  kaiju: { id: 'kaiju', animations: ['kaiju-animations.glb'], groups: ['Kaiju'], roles: { idle: 'Idle', walk: 'Walk' } },
-  fish: { id: 'fish', animations: ['shark-animations.glb'], groups: ['Fish'], roles: { idle: 'Idle', walk: 'Swim Horizontal' } },
-  horse: { id: 'horse', animations: ['horse-animations.glb'], groups: ['Horse'], roles: { idle: 'Idle', walk: 'Walk', run: 'Run', sit: 'Sleep' } },
-  dragon: { id: 'dragon', animations: ['dragon-animations.glb'], groups: ['Dragon'], roles: { idle: 'Idle', walk: 'Walk', run: 'Fly Flap' } },
-  spider: { id: 'spider', animations: ['spider-animations.glb'], groups: ['Spider'], roles: { idle: 'Idle', walk: 'Walk' } },
-  snake: { id: 'snake', animations: ['snake-animations.glb'], groups: ['Snake'], roles: { idle: 'Idle', walk: 'Side winding' } },
+  fox: { id: 'fox', animations: ['fox-animations.glb'], groups: ['Quadruped'], roles: { idle: 'Idle', walk: 'Walk', run: 'Run', sit: 'Sit' }, trackingBone: 'hips' },
+  bird: { id: 'bird', animations: ['bird-animations.glb'], groups: ['Bird'], roles: { idle: 'Idle', walk: 'Walk', run: 'Flap' }, trackingBone: 'hips' },
+  kaiju: { id: 'kaiju', animations: ['kaiju-animations.glb'], groups: ['Kaiju'], roles: { idle: 'Idle', walk: 'Walk' }, trackingBone: 'hips' },
+  fish: { id: 'fish', animations: ['shark-animations.glb'], groups: ['Fish'], roles: { idle: 'Idle', walk: 'Swim Horizontal' }, trackingBone: 'pelvis' },
+  horse: { id: 'horse', animations: ['horse-animations.glb'], groups: ['Horse'], roles: { idle: 'Idle', walk: 'Walk', run: 'Run', sit: 'Sleep' }, trackingBone: 'hips' },
+  dragon: { id: 'dragon', animations: ['dragon-animations.glb'], groups: ['Dragon'], roles: { idle: 'Idle', walk: 'Walk', run: 'Fly Flap' }, trackingBone: 'hips' },
+  spider: { id: 'spider', animations: ['spider-animations.glb'], groups: ['Spider'], roles: { idle: 'Idle', walk: 'Walk' }, trackingBone: 'hips' },
+  snake: { id: 'snake', animations: ['snake-animations.glb'], groups: ['Snake'], roles: { idle: 'Idle', walk: 'Side winding' }, trackingBone: 'head' },
 };
 
 export interface M2MCharacter {
@@ -54,7 +57,7 @@ export interface M2MCharacter {
   licence: string;
   url: string;
   fit: Fit;
-  /** Multiplier on the pelvis position keyframes so feet stay on the ground (from Mesh2Motion's own data). */
+  /** Multiplier on the tracking bone's position keyframes so feet stay on the ground (Mesh2Motion's `pelvis_position_scale`). */
   pelvisScale: number;
   preview?: string;
 }
@@ -206,6 +209,33 @@ export function m2mResolveClip(family: M2MFamily, clip: string): string {
     default:
       return clip;
   }
+}
+
+/**
+ * Fits a family's clips to one character the way Mesh2Motion does (`AnimationUtility.clean_track_data` and
+ * `apply_position_tracking_bone_scale`): keep every rotation track, drop every position and scale track except the
+ * tracking bone's position (so bones keep this model's lengths), and scale that bone's motion by `pelvisScale`.
+ * Returns new clips; the inputs are untouched.
+ */
+export function fitClips<C extends FitClip>(clips: readonly C[], trackingBone: string, pelvisScale: number, cloneClip: (clip: C, tracks: C['tracks']) => C): C[] {
+  const tracking = `${trackingBone.toLowerCase()}.position`;
+  return clips.map((clip) => {
+    const tracks = clip.tracks
+      .filter((t) => t.name.endsWith('.quaternion') || t.name.toLowerCase() === tracking)
+      .map((t) => {
+        if (pelvisScale === 1 || !t.name.endsWith('.position')) return t;
+        const copy = t.clone();
+        for (let i = 0; i < copy.values.length; i++) copy.values[i] *= pelvisScale;
+        return copy;
+      });
+    return cloneClip(clip, tracks as C['tracks']);
+  });
+}
+
+/** The parts of a three.js AnimationClip that fitting needs (kept structural so it is testable without loading files). */
+export interface FitClip {
+  name: string;
+  tracks: Array<{ name: string; values: ArrayLike<number> & { [i: number]: number }; clone(): FitClip['tracks'][number] }>;
 }
 
 /**

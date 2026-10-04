@@ -1,4 +1,5 @@
 import {
+  AnimationClip,
   Box3,
   Group,
   Mesh,
@@ -8,11 +9,10 @@ import {
   SRGBColorSpace,
   Texture,
   Vector3,
-  type AnimationClip,
   type Object3D,
 } from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { M2M_CDN, M2M_FAMILIES, m2mCharacter, m2mClipFile, m2mProp, m2mResolveClip, type M2MCharacter } from './mesh2motion';
+import { M2M_CDN, M2M_FAMILIES, fitClips, m2mCharacter, m2mClipFile, m2mProp, m2mResolveClip, type M2MCharacter } from './mesh2motion';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { AssetRef, Fit, PrimitiveId } from '../model/scene';
 import { bundledItem, bundledModelUrl } from './catalog';
@@ -86,23 +86,17 @@ export class AssetLoader {
     return this.characterClips(ch, gltf.animations).find((c) => c.name === name) ?? null;
   }
 
-  private readonly scaledClips = new Map<string, AnimationClip[]>();
+  /** Fitted clips per animation file and pelvis scale (characters with the same scale share them). */
+  private readonly fittedClips = new WeakMap<AnimationClip[], Map<number, AnimationClip[]>>();
 
-  /** A family's clips for one character: taller or shorter variations get their pelvis motion scaled to match. */
+  /** A family's clips fitted to one character's proportions (see fitClips). */
   private characterClips(ch: M2MCharacter, clips: AnimationClip[]): AnimationClip[] {
-    const bone = M2M_FAMILIES[ch.family].pelvisBone;
-    if (!bone || ch.pelvisScale === 1) return clips;
-    const key = `${clips.map((c) => c.uuid).join(',').slice(0, 64)}|${ch.pelvisScale}`;
-    let out = this.scaledClips.get(key);
+    let byScale = this.fittedClips.get(clips);
+    if (!byScale) this.fittedClips.set(clips, (byScale = new Map()));
+    let out = byScale.get(ch.pelvisScale);
     if (!out) {
-      out = clips.map((clip) => {
-        const copy = clip.clone();
-        for (const track of copy.tracks) {
-          if (track.name === `${bone}.position`) for (let i = 0; i < track.values.length; i++) track.values[i] *= ch.pelvisScale;
-        }
-        return copy;
-      });
-      this.scaledClips.set(key, out);
+      out = fitClips(clips, M2M_FAMILIES[ch.family].trackingBone, ch.pelvisScale, (clip, tracks) => new AnimationClip(clip.name, clip.duration, tracks));
+      byScale.set(ch.pelvisScale, out);
     }
     return out;
   }
