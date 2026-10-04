@@ -204,7 +204,7 @@ describe('scene serialization', () => {
     const doc = createScene();
     const actor = {
       id: 'a', kind: 'actor', name: 'A', asset: { source: 'bundled', id: 'man' }, transform: identityTransform(), color: '#ff0000',
-      actor: { clip: 'dance', speed: 'fast', waypoints: [[1, 2]], loop: 1 },
+      actor: { clip: 42, speed: 'fast', waypoints: [[1, 2]], loop: 1 },
     };
     const parsed = parseScene({ ...doc, objects: [actor] });
     expect(parsed.objects[0].actor).toEqual({ clip: 'idle', speed: 1.3, waypoints: [], loop: true });

@@ -2,7 +2,8 @@ import { Euler, Quaternion } from 'three';
 import type { DesktopEditor } from '../desktop/DesktopEditor';
 import type { Editor } from '../model/Editor';
 import { hasEditedHandles, smoothPath } from '../model/pathEdit';
-import { ACTOR_CLIPS, CAMERA_ID, DEFAULT_SPEED, clearWaypoints, editPath, pathOf, popWaypoint, type SceneObject, type Transform } from '../model/scene';
+import { clipLabel, m2mClipGroups, m2mFamilyOf } from '../assets/mesh2motion';
+import { ACTOR_CLIPS, CAMERA_ID, clearWaypoints, clipSpeed, editPath, pathOf, popWaypoint, type SceneObject, type Transform } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { el, section, setValue } from './dom';
 import { icon } from './icons';
@@ -196,17 +197,23 @@ export class InspectorPanel {
     this.refresh = () => updaters.forEach((u) => u());
   }
 
+  /** Basic clips, plus the character's whole library (grouped by animation set) for Mesh2Motion characters. */
   private clipField(id: string, updaters: Array<() => void>): HTMLElement {
+    const obj = this.editor.find(id);
+    const family = obj?.asset.source === 'm2m' ? m2mFamilyOf(obj.asset.id) : undefined;
+    const option = (value: string) => el('option', { value, text: clipLabel(value) });
+    const groups: HTMLElement[] = [el('optgroup', { label: 'Basic' }, ...ACTOR_CLIPS.map(option))];
+    if (family) for (const g of m2mClipGroups(family)) groups.push(el('optgroup', { label: `${g.label} (${g.clips.length})` }, ...g.clips.map(option)));
     const clip = el('select', {
       class: 'input',
       'aria-label': 'Animation clip',
       onchange: () =>
         this.editor.update(id, (o) => {
-          const c = clip.value as (typeof ACTOR_CLIPS)[number];
-          o.actor!.clip = c;
-          if (DEFAULT_SPEED[c] > 0) o.actor!.speed = DEFAULT_SPEED[c];
+          o.actor!.clip = clip.value;
+          const speed = clipSpeed(clip.value);
+          if (speed !== null) o.actor!.speed = speed;
         }),
-    }, ...ACTOR_CLIPS.map((c) => el('option', { value: c, text: c[0].toUpperCase() + c.slice(1) })));
+    }, ...groups);
     updaters.push(() => {
       const a = this.editor.find(id)?.actor;
       if (a) setValue(clip, a.clip);

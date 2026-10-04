@@ -1,4 +1,5 @@
-import { BUNDLED, CATEGORIES, type Category } from '../../assets/catalog';
+import { ADD_ITEMS, CATEGORIES, type Category } from '../../assets/catalog';
+import { clipLabel, m2mClipGroups, m2mFamilyOf } from '../../assets/mesh2motion';
 import { imageUrl, listImages, onImagesChange, type StoredImage } from '../../assets/imageLibrary';
 import { loadPolyLibrary, polyAssetRef, polyThumbUrl, searchPoly, type PolyEntry } from '../../assets/polyLibrary';
 import type { Playback } from '../../app/Playback';
@@ -11,7 +12,7 @@ import type { Spawnable } from '../../app/spawn';
 import type { Editor } from '../../model/Editor';
 import { ASPECT_IDS, FOCAL_PRESETS, FPS_OPTIONS, SENSORS, clampFocal, horizontalFovDeg, verticalFovDeg, type SensorId } from '../../camera/lens';
 import { hasEditedHandles, smoothPath } from '../../model/pathEdit';
-import { ACTOR_CLIPS, CAMERA_ID, clearWaypoints, editPath, pathOf, type CameraKey, type SceneObject } from '../../model/scene';
+import { ACTOR_CLIPS, CAMERA_ID, clearWaypoints, clipSpeed, editPath, isBasicClip, pathOf, type CameraKey, type SceneObject } from '../../model/scene';
 import { CanvasPanel, PANEL_COLORS } from './CanvasPanel';
 
 export interface VRMenuHost {
@@ -40,9 +41,9 @@ export interface VRMenuHost {
 
 const SAVE_STATUS = { saved: 'All changes saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Could not save' } as const;
 
-type Tab = Category | 'library' | 'images' | 'scene' | 'camera' | 'path' | 'takes' | 'settings';
-/** Tabs that are not object categories under Add. */
-const MAIN_TABS: Tab[] = ['scene', 'camera', 'path', 'takes', 'settings'];
+type Tab = Category | 'library' | 'images' | 'scene' | 'camera' | 'path' | 'takes' | 'settings' | 'clips';
+/** Tabs that are not object categories under Add ('clips' is the selected actor's clip browser). */
+const MAIN_TABS: Tab[] = ['scene', 'camera', 'path', 'takes', 'settings', 'clips'];
 
 const W = 768;
 const H = 1280;
@@ -85,6 +86,11 @@ export class VRMenu extends CanvasPanel {
   private savedScenes: SceneSummary[] | null = null;
   private openPage = 0;
   private fileNote = '';
+  /** Clip browser: animation set shown (0 = basic clips) and page. */
+  private clipGroup = 0;
+  private clipsPage = 0;
+  /** Tab to return to from the clip browser. */
+  private beforeClips: Tab = 'scene';
 
   constructor(
     private readonly editor: Editor,
@@ -156,17 +162,19 @@ export class VRMenu extends CanvasPanel {
     let gridTop = 150;
     if (isAdd) {
       const cats: Array<{ id: Tab; label: string }> = [...CATEGORIES, { id: 'library', label: 'Library' }, { id: 'images', label: 'Images' }];
-      const perRow = 5;
+      const perRow = 6;
       const cw = (W - PAD * 2 - 8 * (perRow - 1)) / perRow;
       cats.forEach((t, i) => {
         const x = PAD + (i % perRow) * (cw + 8);
         const y = 146 + Math.floor(i / perRow) * 50;
-        this.button(`cat-${t.id}`, t.label, x, y, cw, 42, () => this.setTab(t.id), { active: this.tab === t.id, size: 19 });
+        this.button(`cat-${t.id}`, t.label, x, y, cw, 42, () => this.setTab(t.id), { active: this.tab === t.id, size: 18 });
       });
       gridTop = 250;
     }
 
-    if (this.tab === 'scene') {
+    if (this.tab === 'clips') {
+      this.drawClips(gridTop);
+    } else if (this.tab === 'scene') {
       this.drawScene(gridTop);
     } else if (this.tab === 'path') {
       this.drawPath(gridTop);
@@ -233,7 +241,7 @@ export class VRMenu extends CanvasPanel {
       }));
     }
     if (this.tab !== 'library') {
-      return BUNDLED.filter((i) => i.category === this.tab).map((i) => ({ key: i.key, title: i.title, thumb: i.thumb, item: i }));
+      return ADD_ITEMS.filter((i) => i.category === this.tab).map((i) => ({ key: i.key, title: i.title, thumb: i.thumb, item: i }));
     }
     if (!this.library) return [];
     return searchPoly(this.library, this.libraryQuery, 90).map((e) => ({
@@ -730,12 +738,21 @@ export class VRMenu extends CanvasPanel {
       this.button('del', 'Delete', PAD + (bw + 8) * 2, row(0) + 52, bw, 50, () => this.editor.remove(sel.id), { danger: true });
       let pathRow = row(1) + 54;
       if (sel.actor) {
-        const cw = (inner - 24) / 4;
+        // Basic clips, plus a button into the clip browser for library characters (it shows the clip in use).
+        const library = sel.asset.source === 'm2m' && !!m2mFamilyOf(sel.asset.id);
+        const n = library ? 5 : 4;
+        const cw = (inner - 8 * (n - 1)) / n;
         ACTOR_CLIPS.forEach((clip, i) => {
-          this.button(`clip-${clip}`, clip[0].toUpperCase() + clip.slice(1), PAD + i * (cw + 8), row(1) + 54, cw, 50, () => {
-            this.editor.update(sel.id, (o) => (o.actor!.clip = clip));
-          }, { active: sel.actor!.clip === clip });
+          this.button(`clip-${clip}`, clipLabel(clip), PAD + i * (cw + 8), row(1) + 54, cw, 50, () => this.setClip(sel.id, clip), { active: sel.actor!.clip === clip, size: 22 });
         });
+        if (library) {
+          const custom = !isBasicClip(sel.actor.clip);
+          this.button('clip-more', custom ? clipLabel(sel.actor.clip) : 'More…', PAD + 4 * (cw + 8), row(1) + 54, cw, 50, () => {
+            if (this.tab !== 'clips') this.beforeClips = this.tab;
+            this.tab = 'clips';
+            this.clipsPage = 0;
+          }, { active: custom || this.tab === 'clips', size: 20 });
+        }
         pathRow = row(2) + 54;
       }
       this.drawObjectPath(sel, pathRow);
@@ -764,6 +781,57 @@ export class VRMenu extends CanvasPanel {
     this.button('undo', 'Undo', PAD, y, bw, 56, () => this.editor.undo(), { disabled: !this.editor.canUndo });
     this.button('redo', 'Redo', PAD + bw + 8, y, bw, 56, () => this.editor.redo(), { disabled: !this.editor.canRedo });
     this.button('play', this.playback.playing ? '■ Stop' : '▶ Preview', PAD + (bw + 8) * 2, y, bw, 56, () => this.playback.toggle(), { active: this.playback.playing });
+  }
+
+  /** Sets an actor's clip, with a matching path speed for travelling clips. */
+  private setClip(id: string, clip: string): void {
+    this.editor.update(id, (o) => {
+      o.actor!.clip = clip;
+      const speed = clipSpeed(clip);
+      if (speed !== null) o.actor!.speed = speed;
+    });
+  }
+
+  /** The selected library character's clips: pick an animation set, page through, tap to play. */
+  private drawClips(top: number): void {
+    const sel = this.editor.selected;
+    const family = sel?.actor && sel.asset.source === 'm2m' ? m2mFamilyOf(sel.asset.id) : undefined;
+    const inner = W - PAD * 2;
+    this.button('clips-back', '◀ Back', W - PAD - 130, top, 130, 46, () => (this.tab = this.beforeClips), { size: 20 });
+    if (!sel || !family) {
+      this.text('Select a library character to browse its clips.', PAD, top + 23, { size: 22, color: PANEL_COLORS.muted, maxWidth: inner - 150 });
+      return;
+    }
+    this.text(`Clips · ${sel.name}`, PAD, top + 23, { size: 26, weight: 700, maxWidth: inner - 150 });
+    const groups = [{ label: 'Basic', clips: ACTOR_CLIPS as readonly string[] }, ...m2mClipGroups(family)];
+    this.clipGroup = Math.min(this.clipGroup, groups.length - 1);
+    const gw = Math.min(170, (inner - 8 * (groups.length - 1)) / groups.length);
+    groups.forEach((g, i) =>
+      this.button(`cgroup-${i}`, `${g.label} ${g.clips.length}`, PAD + i * (gw + 8), top + 58, gw, 44, () => {
+        this.clipGroup = i;
+        this.clipsPage = 0;
+      }, { active: this.clipGroup === i, size: 19 }),
+    );
+
+    const clips = groups[this.clipGroup].clips;
+    const cols = 3;
+    const rows = 9;
+    const perPage = cols * rows;
+    const pages = Math.max(1, Math.ceil(clips.length / perPage));
+    this.clipsPage = Math.max(0, Math.min(this.clipsPage, pages - 1));
+    const gap = 8;
+    const bw = (inner - gap * (cols - 1)) / cols;
+    const bh = 48;
+    const gridTop = top + 116;
+    clips.slice(this.clipsPage * perPage, (this.clipsPage + 1) * perPage).forEach((clip, i) => {
+      const x = PAD + (i % cols) * (bw + gap);
+      const y = gridTop + Math.floor(i / cols) * (bh + 6);
+      this.button(`cl-${clip}`, clipLabel(clip), x, y, bw, bh, () => this.setClip(sel.id, clip), { active: sel.actor!.clip === clip, size: 18 });
+    });
+    const py = gridTop + rows * (bh + 6) + 4;
+    this.button('cprev', '◀', PAD, py, 120, 44, () => this.clipsPage--, { disabled: this.clipsPage === 0 });
+    this.text(`${this.clipsPage + 1} / ${pages}`, W / 2, py + 22, { align: 'center', color: PANEL_COLORS.muted });
+    this.button('cnext', '▶', W - PAD - 120, py, 120, 44, () => this.clipsPage++, { disabled: this.clipsPage >= pages - 1 });
   }
 
   /** Waypoint path controls for any object: draw, clear, loop and speed. */

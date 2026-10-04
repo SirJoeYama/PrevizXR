@@ -91,6 +91,7 @@ export class TakeRenderer {
     const doc = structuredClone(this.editor.doc);
     const sceneName = take.sceneName || doc.name;
 
+    this.sync.prepareClips(take.frames); // library clips the take uses but nobody has played yet
     await this.sync.whenLoaded();
     const useMp4 = opts.format === 'mp4' && (await canEncodeMp4(width, height));
     const sinks = new Map<PassId, FrameSink>();

@@ -1,6 +1,6 @@
 import { measure, resolveHandles, segments } from './bezier';
 import { multiplyQuat, quatFromYaw } from './math';
-import { pathOf, type ActorClip, type MotionPath, type Quat, type SceneObject, type Vec3 } from './scene';
+import { isTravelClip, pathOf, type ActorClip, type MotionPath, type Quat, type SceneObject, type Vec3 } from './scene';
 
 export interface PathSample {
   /** World position on the floor path. */
@@ -78,7 +78,7 @@ export function objectPoseAt(obj: SceneObject, t: number): ObjectPose {
   }
   if (!actor) return pose;
   let clip = actor.clip;
-  if (actor.waypoints.length && !moving && t > 0 && (clip === 'walk' || clip === 'run')) clip = 'idle';
+  if (actor.waypoints.length && !moving && t > 0 && isTravelClip(clip)) clip = 'idle';
   pose.clip = clip;
   pose.t = t;
   return pose;

@@ -1,9 +1,12 @@
 import type { AssetRef, Fit, LightType, PrimitiveId, SceneObjectKind } from '../model/scene';
+import { m2mCatalogItems } from './mesh2motion';
 
-export type Category = 'actors' | 'basic' | 'furniture' | 'street' | 'vehicles' | 'nature' | 'buildings' | 'lights';
+export type Category = 'actors' | 'animals' | 'props' | 'basic' | 'furniture' | 'street' | 'vehicles' | 'nature' | 'buildings' | 'lights';
 
 export const CATEGORIES: Array<{ id: Category; label: string }> = [
   { id: 'actors', label: 'Actors' },
+  { id: 'animals', label: 'Animals' },
+  { id: 'props', label: 'Props' },
   { id: 'basic', label: 'Blockout' },
   { id: 'furniture', label: 'Furniture' },
   { id: 'street', label: 'Street' },
@@ -143,6 +146,9 @@ export const BUNDLED: CatalogItem[] = [
     asset: { source: 'light', id },
   })),
 ];
+
+/** Everything the Add panel and VR menu offer: bundled models plus the Mesh2Motion library (loaded on demand). */
+export const ADD_ITEMS: CatalogItem[] = [...BUNDLED, ...m2mCatalogItems()];
 
 const byKey = new Map(BUNDLED.map((item) => [item.key, item]));
 

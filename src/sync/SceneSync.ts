@@ -16,6 +16,7 @@ import {
   Object3D,
   PointLight,
 
+  LoopOnce,
   SphereGeometry,
   SpotLight,
   Vector3,
@@ -25,6 +26,7 @@ import {
   type Sprite,
 } from 'three';
 import type { AssetLoader } from '../assets/AssetLoader';
+import { isOneShotClip } from '../assets/mesh2motion';
 import type { Editor } from '../model/Editor';
 import { polyline, resolveHandles, segments } from '../model/bezier';
 import { objectPoseAt, type ObjectPose } from '../model/motion';
@@ -40,8 +42,14 @@ interface Entry {
   loadToken: number;
   height: number;
   mixer?: AnimationMixer;
+  /** Clips by name: basic clips (idle, walk, run, sit) and, for library characters, every clip in their library. */
   actions: Map<ActorClip, AnimationAction>;
   activeClip?: ActorClip;
+  activeAction?: AnimationAction;
+  /** Library character (Mesh2Motion catalog key) whose further clips load on first use. */
+  libraryKey?: string;
+  /** Library clips already requested (loaded, loading or missing), so each is fetched once. */
+  requestedClips: Set<string>;
   light?: Light;
   label: Sprite;
   labelSig: string;
@@ -49,7 +57,8 @@ interface Entry {
   pathSig: string;
 }
 
-const CLIP_PATTERNS: Record<ActorClip, RegExp> = {
+/** How basic clips are found in models that come with their own few clips (bundled actors). */
+const CLIP_PATTERNS: Record<string, RegExp> = {
   idle: /(^|[|_])idle$/i,
   walk: /(^|[|_])walk(ing)?$/i,
   run: /(^|[|_])run(ning)?$/i,
@@ -210,7 +219,7 @@ export class SceneSync {
     this.root.add(root);
     const label = makeLabel(obj.name, obj.color);
     this.helpers.add(label);
-    return { id: obj.id, root, key: '', content: null, loadToken: 0, height: 0.5, actions: new Map(), label, labelSig: '', pathSig: '' };
+    return { id: obj.id, root, key: '', content: null, loadToken: 0, height: 0.5, actions: new Map(), requestedClips: new Set(), label, labelSig: '', pathSig: '' };
   }
 
   private destroy(e: Entry): void {
@@ -232,6 +241,9 @@ export class SceneSync {
     e.mixer = undefined;
     e.actions.clear();
     e.activeClip = undefined;
+    e.activeAction = undefined;
+    e.requestedClips.clear();
+    e.libraryKey = obj.asset.source === 'm2m' ? obj.asset.id : undefined;
 
     if (obj.asset.source === 'light') {
       this.setContent(e, this.buildLight(e, obj));
@@ -242,10 +254,10 @@ export class SceneSync {
     placeholder.userData.helper = true;
     this.setContent(e, placeholder);
     try {
-      const { object, clips } = await this.loader.load(obj.asset);
+      const { object, clips, roles } = await this.loader.load(obj.asset);
       if (token !== e.loadToken || !this.entries.has(e.id)) return;
       this.setContent(e, object);
-      if (clips.length) this.setupClips(e, object, clips);
+      if (clips.length) this.setupClips(e, object, clips, roles);
       const current = this.editor.find(e.id);
       if (current) this.applyPose(current);
     } catch (err) {
@@ -272,11 +284,67 @@ export class SceneSync {
     e.height = tmpBox.isEmpty() ? 0.5 : Math.max(tmpBox.max.y, 0.2);
   }
 
-  private setupClips(e: Entry, model: Object3D, clips: AnimationClip[]): void {
+  private setupClips(e: Entry, model: Object3D, clips: AnimationClip[], roles?: Record<string, string>): void {
     e.mixer = new AnimationMixer(model);
-    for (const [clip, pattern] of Object.entries(CLIP_PATTERNS) as Array<[ActorClip, RegExp]>) {
+    if (roles) {
+      for (const c of clips) this.addAction(e, c);
+      for (const [basic, name] of Object.entries(roles)) {
+        const action = e.actions.get(name);
+        if (action) e.actions.set(basic, action);
+      }
+      return;
+    }
+    for (const [clip, pattern] of Object.entries(CLIP_PATTERNS)) {
       const match = clips.find((c) => pattern.test(c.name));
       if (match) e.actions.set(clip, e.mixer.clipAction(match));
+    }
+  }
+
+  /** Library clips: one-shots (deaths, attacks, transitions) play once and hold their last pose. */
+  private addAction(e: Entry, clip: AnimationClip): void {
+    const action = e.mixer!.clipAction(clip);
+    if (isOneShotClip(clip.name)) {
+      action.setLoop(LoopOnce, 1);
+      action.clampWhenFinished = true;
+    }
+    e.actions.set(clip.name, action);
+  }
+
+  /** Loads a library clip the actor doesn't have yet (add-on and mocap files load on first use). */
+  private requestClip(e: Entry, clip: ActorClip): void {
+    const key = e.libraryKey;
+    if (!key || e.requestedClips.has(clip)) return;
+    e.requestedClips.add(clip);
+    const token = e.loadToken;
+    const p = this.loader
+      .loadM2MClip(key, clip)
+      .then((loaded) => {
+        if (!loaded || token !== e.loadToken || !e.mixer) return;
+        this.addAction(e, loaded);
+        if (loaded.name !== clip) e.actions.set(clip, e.actions.get(loaded.name)!);
+        e.activeClip = undefined; // replay with the real clip
+        const obj = this.editor.find(e.id);
+        if (obj) this.applyPose(obj);
+      })
+      .catch((err) => console.warn(`Could not load clip ${clip}`, err));
+    this.loading.add(p);
+    void p.finally(() => this.loading.delete(p));
+  }
+
+  /** Makes sure every clip a take uses is loaded (call before rendering it, then await whenLoaded()). */
+  prepareClips(frames: ReadonlyArray<{ objects: Record<string, ObjectPose> }>): void {
+    const wanted = new Map<string, Set<string>>();
+    for (const f of frames) {
+      for (const [id, pose] of Object.entries(f.objects)) {
+        if (!pose.clip) continue;
+        let set = wanted.get(id);
+        if (!set) wanted.set(id, (set = new Set()));
+        set.add(pose.clip);
+      }
+    }
+    for (const [id, clips] of wanted) {
+      const e = this.entries.get(id);
+      if (e?.mixer) for (const c of clips) if (!e.actions.has(c)) this.requestClip(e, c);
     }
   }
 
@@ -326,16 +394,22 @@ export class SceneSync {
     e.root.scale.fromArray(pose?.s ?? scale);
     if (!obj.actor) return;
     this.playClip(e, pose?.clip ?? obj.actor.clip);
-    if (pose?.t !== undefined) e.mixer?.setTime(pose.t);
+    if (pose?.t !== undefined && e.mixer) {
+      // A one-shot that finished is paused; scrubbing back must play it again.
+      if (e.activeAction) e.activeAction.paused = false;
+      e.mixer.setTime(pose.t);
+    }
   }
 
   private playClip(e: Entry, clip: ActorClip): void {
     if (e.activeClip === clip || !e.mixer) return;
+    if (!e.actions.has(clip)) this.requestClip(e, clip);
     const action = e.actions.get(clip) ?? e.actions.get('idle');
     if (!action) return;
     e.mixer.stopAllAction();
     action.reset().play();
     e.activeClip = clip;
+    e.activeAction = action;
   }
 
   /** The path drawn as its Bézier curve, with a dot per waypoint. */

@@ -1,4 +1,4 @@
-import { BUNDLED, CATEGORIES, type Category } from '../assets/catalog';
+import { ADD_ITEMS, CATEGORIES, type Category } from '../assets/catalog';
 import { loadPolyLibrary, polyAssetRef, polyPageUrl, polyThumbUrl, searchPoly, type PolyEntry } from '../assets/polyLibrary';
 import { IMAGE_TYPES, deleteImage, importImage, imageUrl, listImages, onImagesChange, type StoredImage } from '../assets/imageLibrary';
 import type { Spawnable } from '../app/spawn';
@@ -201,7 +201,7 @@ export class AddPanel {
     if (this.tab !== 'library') {
       this.note.hidden = true;
       this.grid.replaceChildren(
-        ...BUNDLED.filter((i) => i.category === this.tab).map((i) => this.tile(i.title, i.thumb, i, i.credit ? `${i.credit.author} · ${i.credit.licence}` : undefined)),
+        ...ADD_ITEMS.filter((i) => i.category === this.tab).map((i) => this.tile(i.title, i.thumb, i, i.credit ? `${i.credit.author} · ${i.credit.licence}` : undefined)),
       );
       return;
     }

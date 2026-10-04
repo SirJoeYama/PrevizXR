@@ -40,6 +40,7 @@ export interface Fit {
  * - primitive: generated in code
  * - bundled: a .glb shipped with the app (see src/assets/catalog.ts)
  * - poly: fetched on demand from the Poly Pizza CDN; title/licence are stored so scene files stay self-describing
+ * - m2m: the Mesh2Motion library (characters with clip libraries, props), fetched on demand; `id` is its catalog key
  */
 export type AssetRef =
   | { source: 'primitive'; id: PrimitiveId }
@@ -47,10 +48,42 @@ export type AssetRef =
   | { source: 'poly'; id: string; file: string; title: string; creator: string; licence: string; fit: Fit }
   | { source: 'light'; id: LightType }
   /** A picture plane: `id` is the image's content hash in the image library; height 1 m, width = aspect. */
-  | { source: 'image'; id: string; aspect: number };
+  | { source: 'image'; id: string; aspect: number }
+  | { source: 'm2m'; id: string; title: string; creator: string; licence: string };
 
+/** Clips every actor understands; library characters map them to their own clips. */
 export const ACTOR_CLIPS = ['idle', 'walk', 'run', 'sit'] as const;
-export type ActorClip = (typeof ACTOR_CLIPS)[number];
+export type BasicClip = (typeof ACTOR_CLIPS)[number];
+/** A basic clip, or the name of a clip in the actor's own library (Mesh2Motion characters). */
+export type ActorClip = string;
+
+const MAX_CLIP_NAME = 80;
+
+export function isClipName(v: unknown): v is ActorClip {
+  return typeof v === 'string' && v.length > 0 && v.length <= MAX_CLIP_NAME;
+}
+
+export function isBasicClip(clip: string): clip is BasicClip {
+  return (ACTOR_CLIPS as readonly string[]).includes(clip);
+}
+
+/** Travelling clips (walk, run, swim, fly…): an actor switches to idle when it reaches the end of its path. */
+export function isTravelClip(clip: string): boolean {
+  return clip === 'walk' || clip === 'run' || /walk|run|jog|sprint|crawl|swim|trot|strafe|sneak|wind|fly|glide/i.test(clip);
+}
+
+/** A sensible path speed (m/s) for a clip, or null to keep the current one. */
+export function clipSpeed(clip: string): number | null {
+  if (isBasicClip(clip)) return DEFAULT_SPEED[clip] > 0 ? DEFAULT_SPEED[clip] : null;
+  if (/sprint/i.test(clip)) return 6;
+  if (/run|jog/i.test(clip)) return 3.5;
+  if (/trot/i.test(clip)) return 2.5;
+  if (/fly|glide|flap/i.test(clip)) return 5;
+  if (/swim|wind/i.test(clip)) return 1.5;
+  if (/crawl/i.test(clip)) return 0.5;
+  if (/walk|strafe|sneak|stealth/i.test(clip)) return 1.3;
+  return null;
+}
 
 /** Bézier handles of one path anchor, as offsets from the anchor (metres). */
 export interface PathHandle {
@@ -183,7 +216,7 @@ export function defaultCamera(): CameraRig {
   return { transform: { position: [0, 1.6, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, lens: defaultLens(), keyframes: [] };
 }
 
-export const DEFAULT_SPEED: Record<ActorClip, number> = { idle: 0, walk: 1.3, run: 3.5, sit: 0 };
+export const DEFAULT_SPEED: Record<BasicClip, number> = { idle: 0, walk: 1.3, run: 3.5, sit: 0 };
 
 export function defaultActorSettings(): ActorSettings {
   return { clip: 'idle', speed: DEFAULT_SPEED.walk, waypoints: [], loop: false };
@@ -239,7 +272,7 @@ export function waypointAt(obj: Readonly<SceneObject>, x: number, z: number): Ve
 
 /** Stable key for an asset, used for caching and to detect asset changes. */
 export function assetKey(ref: AssetRef): string {
-  return ref.source === 'poly' ? `poly:${ref.file}` : `${ref.source}:${ref.id}`;
+  return ref.source === 'poly' ? `poly:${ref.file}` : `${ref.source}:${ref.id}`; // m2m: `m2m:<catalog key>`
 }
 
 export function cloneDoc<T>(value: T): T {

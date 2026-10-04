@@ -1,5 +1,5 @@
 import { ASPECTS, FPS_OPTIONS, SENSORS, clampFocal } from '../camera/lens';
-import { ACTOR_CLIPS, DEFAULT_MOTION_SPEED, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type MotionPath, type PathHandle, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
+import { DEFAULT_MOTION_SPEED, isClipName, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type MotionPath, type PathHandle, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
 
 export class SceneFormatError extends Error {}
 
@@ -76,6 +76,10 @@ function parseObject(o: unknown, i: number): SceneObject {
   if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) throw new SceneFormatError(`${where} has an invalid color.`);
 
   const obj = structuredClone(o) as unknown as SceneObject;
+  if (obj.asset.source === 'm2m') {
+    const a = obj.asset as Record<string, unknown>;
+    for (const k of ['title', 'creator', 'licence'] as const) if (typeof a[k] !== 'string') a[k] = '';
+  }
   if (obj.asset.source === 'image') {
     const a = obj.asset as { aspect: unknown };
     if (typeof a.aspect !== 'number' || !(a.aspect > 0) || !Number.isFinite(a.aspect)) a.aspect = 1;
@@ -83,7 +87,7 @@ function parseObject(o: unknown, i: number): SceneObject {
   if (obj.hiddenInRenders !== undefined) obj.hiddenInRenders = !!obj.hiddenInRenders;
   if (obj.actor) {
     const a = obj.actor;
-    if (!ACTOR_CLIPS.includes(a.clip)) a.clip = 'idle';
+    if (!isClipName(a.clip)) a.clip = 'idle';
     repairPath(a, 1.3);
   }
   if (obj.motion !== undefined) {

@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run lint && npm run typecheck && npm run test",
-    "catalog": "node scripts/build-poly-catalog.mjs"
+    "catalog": "node scripts/build-poly-catalog.mjs",
+    "catalog:m2m": "node scripts/build-m2m-catalog.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

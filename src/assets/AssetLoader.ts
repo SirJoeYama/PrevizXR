@@ -12,6 +12,7 @@ import {
   type Object3D,
 } from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { M2M_CDN, M2M_FAMILIES, m2mCharacter, m2mClipFile, m2mProp, m2mResolveClip, type M2MCharacter } from './mesh2motion';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { AssetRef, Fit, PrimitiveId } from '../model/scene';
 import { bundledItem, bundledModelUrl } from './catalog';
@@ -23,6 +24,11 @@ export interface LoadedAsset {
   /** Normalized model: base on y=0, centred on x/z, scaled to its Fit. */
   object: Object3D;
   clips: AnimationClip[];
+  /**
+   * Library characters: every clip is played by name, and these name the clips that stand in for the basic
+   * clips (idle, walk, run, sit). Without it, basic clips are found by matching clip names.
+   */
+  roles?: Record<string, string>;
 }
 
 /** Loads and caches models. Each call returns an independent clone (skeletons included). */
@@ -46,7 +52,69 @@ export class AssetLoader {
         return this.loadGlb(polyModelUrl(ref.file), ref.fit);
       case 'image':
         return { object: await this.buildPicture(ref.id, ref.aspect), clips: [] };
+      case 'm2m':
+        return this.loadM2M(ref.id);
     }
+  }
+
+  /** A Mesh2Motion character (its model plus the family's first animation file) or prop. */
+  private async loadM2M(key: string): Promise<LoadedAsset> {
+    const prop = m2mProp(key);
+    if (prop) return this.loadGlb(M2M_CDN + prop.file, prop.fit);
+    const ch = m2mCharacter(key);
+    if (!ch) throw new Error(`Unknown Mesh2Motion asset ${key}`);
+    const family = M2M_FAMILIES[ch.family];
+    const animUrl = M2M_CDN + 'animations/' + family.animations[0];
+    const [model, anims] = await Promise.all([this.gltfOf(ch.file ? M2M_CDN + ch.file : animUrl), this.gltfOf(animUrl)]);
+    const roles: Record<string, string> = {};
+    for (const basic of ['idle', 'walk', 'run', 'sit']) roles[basic] = m2mResolveClip(family, basic);
+    return { object: normalize(cloneSkinned(model.scene), ch.fit), clips: this.characterClips(ch, anims.animations), roles };
+  }
+
+  /**
+   * One clip from a character's other animation files (add-on, mocap), loaded the first time it is needed.
+   * Resolves to null when the clip is not in its library.
+   */
+  async loadM2MClip(key: string, clip: string): Promise<AnimationClip | null> {
+    const ch = m2mCharacter(key);
+    if (!ch) return null;
+    const family = M2M_FAMILIES[ch.family];
+    const file = m2mClipFile(family, m2mResolveClip(family, clip));
+    if (!file) return null;
+    const gltf = await this.gltfOf(M2M_CDN + 'animations/' + file);
+    const name = m2mResolveClip(family, clip);
+    return this.characterClips(ch, gltf.animations).find((c) => c.name === name) ?? null;
+  }
+
+  private readonly scaledClips = new Map<string, AnimationClip[]>();
+
+  /** A family's clips for one character: taller or shorter variations get their pelvis motion scaled to match. */
+  private characterClips(ch: M2MCharacter, clips: AnimationClip[]): AnimationClip[] {
+    const bone = M2M_FAMILIES[ch.family].pelvisBone;
+    if (!bone || ch.pelvisScale === 1) return clips;
+    const key = `${clips.map((c) => c.uuid).join(',').slice(0, 64)}|${ch.pelvisScale}`;
+    let out = this.scaledClips.get(key);
+    if (!out) {
+      out = clips.map((clip) => {
+        const copy = clip.clone();
+        for (const track of copy.tracks) {
+          if (track.name === `${bone}.position`) for (let i = 0; i < track.values.length; i++) track.values[i] *= ch.pelvisScale;
+        }
+        return copy;
+      });
+      this.scaledClips.set(key, out);
+    }
+    return out;
+  }
+
+  private gltfOf(url: string): Promise<GLTF> {
+    let pending = this.cache.get(url);
+    if (!pending) {
+      pending = this.gltf.loadAsync(url);
+      this.cache.set(url, pending);
+      pending.catch(() => this.cache.delete(url));
+    }
+    return pending;
   }
 
   /** Picture plane: 1 m tall, `aspect` wide, bottom edge at y = 0, unlit image in front and a dark back. */
@@ -79,13 +147,7 @@ export class AssetLoader {
   }
 
   private async loadGlb(url: string, fit: Fit): Promise<LoadedAsset> {
-    let pending = this.cache.get(url);
-    if (!pending) {
-      pending = this.gltf.loadAsync(url);
-      this.cache.set(url, pending);
-      pending.catch(() => this.cache.delete(url));
-    }
-    const gltf = await pending;
+    const gltf = await this.gltfOf(url);
     const model = cloneSkinned(gltf.scene);
     return { object: normalize(model, fit), clips: gltf.animations };
   }

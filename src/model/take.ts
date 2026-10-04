@@ -1,4 +1,4 @@
-import { ACTOR_CLIPS, type CameraKey, type Quat, type SceneDoc, type SceneObjectKind, type Vec3 } from './scene';
+import { isClipName, type CameraKey, type Quat, type SceneDoc, type SceneObjectKind, type Vec3 } from './scene';
 import { bezierPoint, resolveHandles, segments } from './bezier';
 import { lerp, lerp3, normalizeQuat, r5, round3, round4, slerp } from './math';
 import { objectPoseAt, type ObjectPose } from './motion';
@@ -315,7 +315,7 @@ export function parseTake(input: unknown): Take {
     if (!f.objects || typeof f.objects !== 'object') throw new TakeFormatError(`Frame ${i} has no objects.`);
     for (const [id, o] of Object.entries(f.objects)) {
       if (!isN(o.p, 3) || !isN(o.q, 4) || !isN(o.s, 3)) throw new TakeFormatError(`Frame ${i}, object ${id} has an invalid pose.`);
-      if (o.clip !== undefined && !ACTOR_CLIPS.includes(o.clip)) throw new TakeFormatError(`Frame ${i}, object ${id} has an unknown clip.`);
+      if (o.clip !== undefined && !isClipName(o.clip)) throw new TakeFormatError(`Frame ${i}, object ${id} has an invalid clip.`);
     }
   });
   const take = structuredClone(d) as Take;
