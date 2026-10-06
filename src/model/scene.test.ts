@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAMERA_ID, SCENE_FORMAT_VERSION, assetKey, createScene, editPath, identityTransform, pathOf, waypointAt } from './scene';
+import { CAMERA_ID, SCENE_FORMAT_VERSION, assetKey, basicClipRoles, createScene, editPath, identityTransform, pathOf, waypointAt } from './scene';
 import { idColorAt, nextIdColor } from './idColors';
 import { Editor, uniqueName } from './Editor';
 import { SceneFormatError, parseScene, serializeScene } from './serialize';
@@ -262,5 +262,33 @@ describe('camera rig', () => {
     expect(cam.transform.position).toEqual([0, 1.6, 4]);
     expect(cam.lens).toMatchObject({ focalLength: 135, sensor: 'super35', aspect: '16:9', fps: 24 });
     expect(cam.lens.guides.thirds).toBe(false);
+  });
+});
+
+describe('basicClipRoles', () => {
+  it('finds basic clips under armature prefixes, character prefixes and loop suffixes', () => {
+    expect(basicClipRoles(['Rig|Crouch_Idle_Loop', 'Rig|Idle_Loop', 'Rig|Jog_Fwd_Loop', 'Rig|Sitting_Idle_Loop', 'Rig|Walk_Formal_Loop', 'Rig|Walk_Loop'])).toEqual({
+      idle: 'Rig|Idle_Loop',
+      walk: 'Rig|Walk_Loop',
+      run: 'Rig|Jog_Fwd_Loop',
+      sit: 'Rig|Sitting_Idle_Loop',
+    });
+    expect(basicClipRoles(['HumanArmature|Man_Death', 'HumanArmature|Man_Idle', 'HumanArmature|Man_Run', 'HumanArmature|Man_Sitting', 'HumanArmature|Man_Walk'])).toEqual({
+      idle: 'HumanArmature|Man_Idle',
+      walk: 'HumanArmature|Man_Walk',
+      run: 'HumanArmature|Man_Run',
+      sit: 'HumanArmature|Man_Sitting',
+    });
+  });
+
+  it('prefers a plain idle over jump or weapon idles', () => {
+    expect(basicClipRoles(['CharacterArmature|Jump_Idle', 'CharacterArmature|Idle_Gun', 'CharacterArmature|Idle']).idle).toBe('CharacterArmature|Idle');
+    expect(basicClipRoles(['CharacterArmature|Jump_Idle', 'CharacterArmature|Idle_Neutral']).idle).toBe('CharacterArmature|Idle_Neutral');
+  });
+
+  it('falls back to another travelling clip for walk and to walk for run', () => {
+    expect(basicClipRoles(['Fish_Armature|Attack', 'Fish_Armature|Swimming_Normal'])).toEqual({ walk: 'Fish_Armature|Swimming_Normal', run: 'Fish_Armature|Swimming_Normal' });
+    expect(basicClipRoles(['Fish_Armature|Swimming_Fast', 'Fish_Armature|Swimming_Normal'])).toEqual({ walk: 'Fish_Armature|Swimming_Normal', run: 'Fish_Armature|Swimming_Fast' });
+    expect(basicClipRoles(['Fire', 'Reload'])).toEqual({});
   });
 });

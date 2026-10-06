@@ -30,7 +30,7 @@ import { isOneShotClip } from '../assets/mesh2motion';
 import type { Editor } from '../model/Editor';
 import { polyline, resolveHandles, segments } from '../model/bezier';
 import { objectPoseAt, type ObjectPose } from '../model/motion';
-import { assetKey, pathOf, type ActorClip, type SceneObject } from '../model/scene';
+import { assetKey, basicClipRoles, pathOf, type ActorClip, type SceneObject } from '../model/scene';
 import { drawLabel, makeLabel } from './labels';
 
 interface Entry {
@@ -42,7 +42,7 @@ interface Entry {
   loadToken: number;
   height: number;
   mixer?: AnimationMixer;
-  /** Clips by name: basic clips (idle, walk, run, sit) and, for library characters, every clip in their library. */
+  /** Clips by name: basic clips (idle, walk, run, sit) and every clip in the model or its library. */
   actions: Map<ActorClip, AnimationAction>;
   activeClip?: ActorClip;
   activeAction?: AnimationAction;
@@ -56,14 +56,6 @@ interface Entry {
   path?: Group;
   pathSig: string;
 }
-
-/** How basic clips are found in models that come with their own few clips (bundled actors). */
-const CLIP_PATTERNS: Record<string, RegExp> = {
-  idle: /(^|[|_])idle$/i,
-  walk: /(^|[|_])walk(ing)?$/i,
-  run: /(^|[|_])run(ning)?$/i,
-  sit: /(^|[|_])(sitting|sit_?idle|sit)$/i,
-};
 
 export const LIGHT_SPAWN_INTENSITY = { point: 30, spot: 120, directional: 2 };
 
@@ -284,19 +276,13 @@ export class SceneSync {
     e.height = tmpBox.isEmpty() ? 0.5 : Math.max(tmpBox.max.y, 0.2);
   }
 
+  /** Every clip by name, plus the basic clips: the loader's roles (Mesh2Motion) or matched by clip name. */
   private setupClips(e: Entry, model: Object3D, clips: AnimationClip[], roles?: Record<string, string>): void {
     e.mixer = new AnimationMixer(model);
-    if (roles) {
-      for (const c of clips) this.addAction(e, c);
-      for (const [basic, name] of Object.entries(roles)) {
-        const action = e.actions.get(name);
-        if (action) e.actions.set(basic, action);
-      }
-      return;
-    }
-    for (const [clip, pattern] of Object.entries(CLIP_PATTERNS)) {
-      const match = clips.find((c) => pattern.test(c.name));
-      if (match) e.actions.set(clip, e.mixer.clipAction(match));
+    for (const c of clips) this.addAction(e, c);
+    for (const [basic, name] of Object.entries(roles ?? basicClipRoles(clips.map((c) => c.name)))) {
+      const action = e.actions.get(name);
+      if (action) e.actions.set(basic, action);
     }
   }
 

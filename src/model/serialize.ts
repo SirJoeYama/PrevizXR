@@ -80,6 +80,10 @@ function parseObject(o: unknown, i: number): SceneObject {
     const a = obj.asset as Record<string, unknown>;
     for (const k of ['title', 'creator', 'licence'] as const) if (typeof a[k] !== 'string') a[k] = '';
   }
+  if (obj.asset.source === 'poly') {
+    const a = obj.asset as { clips?: unknown };
+    if (a.clips !== undefined && !(Array.isArray(a.clips) && a.clips.every(isClipName))) delete a.clips;
+  }
   if (obj.asset.source === 'image') {
     const a = obj.asset as { aspect: unknown };
     if (typeof a.aspect !== 'number' || !(a.aspect > 0) || !Number.isFinite(a.aspect)) a.aspect = 1;

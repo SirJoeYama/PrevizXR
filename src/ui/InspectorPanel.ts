@@ -2,7 +2,7 @@ import { Euler, Quaternion } from 'three';
 import type { DesktopEditor } from '../desktop/DesktopEditor';
 import type { Editor } from '../model/Editor';
 import { hasEditedHandles, smoothPath } from '../model/pathEdit';
-import { clipLabel, m2mClipGroups, m2mFamilyOf } from '../assets/mesh2motion';
+import { actorClipGroups, clipLabel } from '../assets/mesh2motion';
 import { ACTOR_CLIPS, CAMERA_ID, clearWaypoints, clipSpeed, editPath, pathOf, popWaypoint, type SceneObject, type Transform } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import { el, section, setValue } from './dom';
@@ -197,13 +197,12 @@ export class InspectorPanel {
     this.refresh = () => updaters.forEach((u) => u());
   }
 
-  /** Basic clips, plus the character's whole library (grouped by animation set) for Mesh2Motion characters. */
+  /** Basic clips, plus the actor's own clips (Mesh2Motion animation sets, or an animated model's clips). */
   private clipField(id: string, updaters: Array<() => void>): HTMLElement {
     const obj = this.editor.find(id);
-    const family = obj?.asset.source === 'm2m' ? m2mFamilyOf(obj.asset.id) : undefined;
     const option = (value: string) => el('option', { value, text: clipLabel(value) });
     const groups: HTMLElement[] = [el('optgroup', { label: 'Basic' }, ...ACTOR_CLIPS.map(option))];
-    if (family) for (const g of m2mClipGroups(family)) groups.push(el('optgroup', { label: `${g.label} (${g.clips.length})` }, ...g.clips.map(option)));
+    if (obj) for (const g of actorClipGroups(obj.asset)) groups.push(el('optgroup', { label: `${g.label} (${g.clips.length})` }, ...g.clips.map(option)));
     const clip = el('select', {
       class: 'input',
       'aria-label': 'Animation clip',

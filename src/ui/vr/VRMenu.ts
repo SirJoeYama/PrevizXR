@@ -1,7 +1,7 @@
 import { ADD_ITEMS, CATEGORIES, type Category } from '../../assets/catalog';
-import { clipLabel, m2mClipGroups, m2mFamilyOf } from '../../assets/mesh2motion';
+import { actorClipGroups, clipLabel } from '../../assets/mesh2motion';
 import { imageUrl, listImages, onImagesChange, type StoredImage } from '../../assets/imageLibrary';
-import { loadPolyLibrary, polyAssetRef, polyThumbUrl, searchPoly, type PolyEntry } from '../../assets/polyLibrary';
+import { POLY_LIBRARIES, loadPolyLibrary, polyLibrary, polySpawnable, polyThumbUrl, searchPoly, type PolyEntry, type PolyLibraryId } from '../../assets/polyLibrary';
 import type { Playback } from '../../app/Playback';
 import type { Project } from '../../app/Project';
 import type { SceneSummary } from '../../storage/sceneStore';
@@ -52,7 +52,6 @@ const COLS = 3;
 const ROWS = 3;
 const PER_PAGE = COLS * ROWS;
 /** Keyboard-free library search in VR: tap a preset query. */
-const LIBRARY_PRESETS = ['chair', 'table', 'couch', 'car', 'truck', 'tree', 'plant', 'lamp', 'house', 'dog'];
 
 interface Tile {
   key: string;
@@ -67,8 +66,9 @@ export class VRMenu extends CanvasPanel {
   /** Category shown when returning to Add. */
   private lastAddTab: Tab = 'actors';
   private page = 0;
-  private libraryQuery = LIBRARY_PRESETS[0];
-  private library: PolyEntry[] | null = null;
+  private libraryId: PolyLibraryId = 'google';
+  private libraryQuery = polyLibrary('google').presets[0];
+  private readonly libraries = new Map<PolyLibraryId, PolyEntry[]>();
   private libraryError = '';
   private readonly images = new Map<string, HTMLImageElement>();
   private shownFocus: number | null | undefined;
@@ -199,9 +199,10 @@ export class VRMenu extends CanvasPanel {
   }
 
   private async ensureLibrary(): Promise<void> {
-    if (this.library) return;
+    const id = this.libraryId;
+    if (this.libraries.has(id)) return;
     try {
-      this.library = await loadPolyLibrary();
+      this.libraries.set(id, await loadPolyLibrary(id));
       this.libraryError = '';
     } catch (err) {
       this.libraryError = (err as Error).message;
@@ -209,9 +210,21 @@ export class VRMenu extends CanvasPanel {
     this.invalidate();
   }
 
+  /** Library picker (Poly by Google, Quaternius) and preset searches, since there is no keyboard in VR. */
   private drawLibraryPresets(top: number): number {
+    const sw = (W - PAD * 2 - 8 * (POLY_LIBRARIES.length - 1)) / POLY_LIBRARIES.length;
+    POLY_LIBRARIES.forEach((lib, i) => {
+      this.button(`lib-${lib.id}`, `${lib.creator} · ${lib.licence}`, PAD + i * (sw + 8), top, sw, 44, () => {
+        if (lib.id === this.libraryId) return;
+        this.libraryId = lib.id;
+        this.libraryQuery = lib.presets[0];
+        this.page = 0;
+        void this.ensureLibrary();
+      }, { active: this.libraryId === lib.id, size: 20 });
+    });
+    top += 52;
     const w = (W - PAD * 2 - 8 * 4) / 5;
-    LIBRARY_PRESETS.forEach((q, i) => {
+    polyLibrary(this.libraryId).presets.forEach((q, i) => {
       const x = PAD + (i % 5) * (w + 8);
       const y = top + Math.floor(i / 5) * 52;
       this.button(`q-${q}`, q, x, y, w, 44, () => {
@@ -243,17 +256,18 @@ export class VRMenu extends CanvasPanel {
     if (this.tab !== 'library') {
       return ADD_ITEMS.filter((i) => i.category === this.tab).map((i) => ({ key: i.key, title: i.title, thumb: i.thumb, item: i }));
     }
-    if (!this.library) return [];
-    return searchPoly(this.library, this.libraryQuery, 90).map((e) => ({
+    const entries = this.libraries.get(this.libraryId);
+    if (!entries) return [];
+    return searchPoly(entries, this.libraryQuery, 90).map((e) => ({
       key: `poly-${e.id}`,
       title: e.title,
       thumb: polyThumbUrl(e.file),
-      item: { title: e.title, kind: 'prop', asset: polyAssetRef(e) },
+      item: polySpawnable(e),
     }));
   }
 
   private drawGrid(tiles: Tile[], top: number, height: number): void {
-    if (this.tab === 'library' && !this.library) {
+    if (this.tab === 'library' && !this.libraries.has(this.libraryId)) {
       this.text(this.libraryError || 'Loading library…', W / 2, top + 80, { align: 'center', color: PANEL_COLORS.muted });
       return;
     }
@@ -739,7 +753,7 @@ export class VRMenu extends CanvasPanel {
       let pathRow = row(1) + 54;
       if (sel.actor) {
         // Basic clips, plus a button into the clip browser for library characters (it shows the clip in use).
-        const library = sel.asset.source === 'm2m' && !!m2mFamilyOf(sel.asset.id);
+        const library = actorClipGroups(sel.asset).length > 0;
         const n = library ? 5 : 4;
         const cw = (inner - 8 * (n - 1)) / n;
         ACTOR_CLIPS.forEach((clip, i) => {
@@ -795,15 +809,15 @@ export class VRMenu extends CanvasPanel {
   /** The selected library character's clips: pick an animation set, page through, tap to play. */
   private drawClips(top: number): void {
     const sel = this.editor.selected;
-    const family = sel?.actor && sel.asset.source === 'm2m' ? m2mFamilyOf(sel.asset.id) : undefined;
+    const own = sel?.actor ? actorClipGroups(sel.asset) : [];
     const inner = W - PAD * 2;
     this.button('clips-back', '◀ Back', W - PAD - 130, top, 130, 46, () => (this.tab = this.beforeClips), { size: 20 });
-    if (!sel || !family) {
+    if (!sel || !own.length) {
       this.text('Select a library character to browse its clips.', PAD, top + 23, { size: 22, color: PANEL_COLORS.muted, maxWidth: inner - 150 });
       return;
     }
     this.text(`Clips · ${sel.name}`, PAD, top + 23, { size: 26, weight: 700, maxWidth: inner - 150 });
-    const groups = [{ label: 'Basic', clips: ACTOR_CLIPS as readonly string[] }, ...m2mClipGroups(family)];
+    const groups = [{ label: 'Basic', clips: ACTOR_CLIPS as readonly string[] }, ...own];
     this.clipGroup = Math.min(this.clipGroup, groups.length - 1);
     const gw = Math.min(170, (inner - 8 * (groups.length - 1)) / groups.length);
     groups.forEach((g, i) =>

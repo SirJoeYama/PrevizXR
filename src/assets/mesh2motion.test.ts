@@ -71,6 +71,7 @@ describe('Mesh2Motion catalog', () => {
     expect(propTitle('AK')).toBe('AK');
     expect(clipLabel('Sitting_Idle')).toBe('Sitting idle');
     expect(clipLabel('idle')).toBe('Idle');
+    expect(clipLabel('Rig|Walk_Loop')).toBe('Walk loop');
   });
 });
 

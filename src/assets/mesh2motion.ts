@@ -1,4 +1,4 @@
-import type { BasicClip, Fit } from '../model/scene';
+import type { AssetRef, BasicClip, Fit } from '../model/scene';
 import type { CatalogItem, Credit } from './catalog';
 import { M2M_CLIPS, M2M_COMMIT, M2M_PROPS } from './mesh2motionData';
 
@@ -194,6 +194,13 @@ export function m2mClipGroups(family: M2MFamily): Array<{ label: string; clips: 
   return family.animations.map((f, i) => ({ label: family.groups[i] ?? f, clips: M2M_CLIPS[f] ?? [] }));
 }
 
+/** An actor's own clips beyond the basic ones: a Mesh2Motion family's animation sets, or an animated model's clips. */
+export function actorClipGroups(asset: AssetRef): Array<{ label: string; clips: readonly string[] }> {
+  if (asset.source === 'poly') return asset.clips?.length ? [{ label: 'Model', clips: asset.clips }] : [];
+  const family = asset.source === 'm2m' ? m2mFamilyOf(asset.id) : undefined;
+  return family ? m2mClipGroups(family) : [];
+}
+
 /** The library clip behind a basic clip (with the documented fallbacks), or the clip itself. */
 export function m2mResolveClip(family: M2MFamily, clip: string): string {
   const r = family.roles;
@@ -286,9 +293,9 @@ export function propTitle(name: string): string {
   return words.join(' ');
 }
 
-/** Readable clip name: 'Sitting_Idle' → 'Sitting idle'; basic clips are capitalized. */
+/** Readable clip name: 'Sitting_Idle' → 'Sitting idle', 'Rig|Walk_Loop' → 'Walk loop'; basic clips are capitalized. */
 export function clipLabel(name: string): string {
-  const s = name.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  const s = name.slice(name.lastIndexOf('|') + 1).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
   return s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : name;
 }
 

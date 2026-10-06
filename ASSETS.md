@@ -57,11 +57,16 @@ Shipped in `public/assets/` (about 9 MB in total), with thumbnails in `public/as
 
 Downloaded from Poly Pizza (static.poly.pizza) on 2026-10-03. Where a title had several variants, the lightest upright one was picked. The Monitor stands in for a TV because both Television variants lie flat.
 
-## Poly by Google library (on demand)
+## Poly Pizza libraries (on demand)
 
-The **Library** tab searches all 2,292 models published by [Poly by Google](https://poly.pizza/u/Poly%20by%20Google) on Poly Pizza, all **CC-BY 3.0**. They are not bundled: `public/catalog/poly-google.json` holds only the index (id, file, title, license), and each model is fetched from Poly Pizza's CDN when you place it. Scene files store the title, author and license with every placed model so attribution travels with the scene.
+The **Library** tab searches two creators on Poly Pizza (pick one with the toggle above the search box):
 
-Regenerate the index with `npm run catalog` (one request to the public profile page; no API key needed).
+- **Poly by Google**: all 2,292 models published by [Poly by Google](https://poly.pizza/u/Poly%20by%20Google), all **CC-BY 3.0**. Index: `public/catalog/poly-google.json`.
+- **Quaternius**: all 1,411 models published by [Quaternius](https://poly.pizza/u/Quaternius): characters, animals, monsters, nature, buildings, vehicles, weapons and more. 1,395 are **CC0 1.0** and 16 are **CC-BY 3.0** (the licence shows on each tile and in the Credits panel). Index: `public/catalog/quaternius.json`. 234 of them are animated. These are added as actors and keep all their own clips (the inspector's **Clip** list has a **Model** group, and VR has the clip browser). Idle, walk, run and sit are matched by clip name (`basicClipRoles` in `src/model/scene.ts`). Animals and fish without a walk clip use a swim, fly or gallop clip instead. Skinned humanoids are sized to 1.75 m; other models start at 1 m and can be scaled.
+
+Nothing is bundled: the indexes hold only id, file, title and licence (plus clip names for animated models), and each model is fetched from Poly Pizza's CDN when you place it. Scene files store the title, author, licence and clip names with every placed model, so attribution travels with the scene.
+
+Regenerate both indexes with `npm run catalog`, or one with `npm run catalog -- quaternius`. That is one request per profile page, plus two small range requests per Quaternius model to read its GLB header for clip names. No API key is needed.
 
 ## Mesh2Motion library (on demand)
 

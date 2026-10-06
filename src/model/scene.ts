@@ -39,13 +39,14 @@ export interface Fit {
  * Where an object's geometry comes from.
  * - primitive: generated in code
  * - bundled: a .glb shipped with the app (see src/assets/catalog.ts)
- * - poly: fetched on demand from the Poly Pizza CDN; title/licence are stored so scene files stay self-describing
+ * - poly: fetched on demand from the Poly Pizza CDN; title/licence are stored so scene files stay self-describing, and
+ *   `clips` lists an animated model's own clips (actors play them by name)
  * - m2m: the Mesh2Motion library (characters with clip libraries, props), fetched on demand; `id` is its catalog key
  */
 export type AssetRef =
   | { source: 'primitive'; id: PrimitiveId }
   | { source: 'bundled'; id: string }
-  | { source: 'poly'; id: string; file: string; title: string; creator: string; licence: string; fit: Fit }
+  | { source: 'poly'; id: string; file: string; title: string; creator: string; licence: string; fit: Fit; clips?: string[] }
   | { source: 'light'; id: LightType }
   /** A picture plane: `id` is the image's content hash in the image library; height 1 m, width = aspect. */
   | { source: 'image'; id: string; aspect: number }
@@ -54,7 +55,7 @@ export type AssetRef =
 /** Clips every actor understands; library characters map them to their own clips. */
 export const ACTOR_CLIPS = ['idle', 'walk', 'run', 'sit'] as const;
 export type BasicClip = (typeof ACTOR_CLIPS)[number];
-/** A basic clip, or the name of a clip in the actor's own library (Mesh2Motion characters). */
+/** A basic clip, or the name of a clip in the actor's own library (Mesh2Motion characters, animated Poly models). */
 export type ActorClip = string;
 
 const MAX_CLIP_NAME = 80;
@@ -67,9 +68,52 @@ export function isBasicClip(clip: string): clip is BasicClip {
   return (ACTOR_CLIPS as readonly string[]).includes(clip);
 }
 
+/**
+ * Clip name rules for the basic clips, best first, matched against a normalized name (armature prefix, ".001"
+ * suffixes and "_Loop" removed, lowercase): "Rig|Walk_Loop" → "walk", "HumanArmature|Man_Idle" → "man_idle".
+ */
+const BASIC_CLIP_RULES: Record<BasicClip, RegExp[]> = {
+  idle: [/^idle$/, /^(?!.*(jump|sit|crouch|fly|swim|attack|hold|gun|sword|eat|hit))[a-z_]*idle$/, /^idle[_\d]/],
+  walk: [/^walk(ing)?$/, /walk(ing)?$/, /^walk/],
+  run: [/^run(ning)?$/, /run(ning)?$/, /^(jog|sprint)(_fwd)?$/, /^run\d*$/],
+  sit: [/^sit(ting)?(_?idle)?$/, /sit(ting)?(_?idle)?$/],
+};
+
+function normalizeClipName(name: string): string {
+  return name
+    .slice(name.lastIndexOf('|') + 1)
+    .toLowerCase()
+    .replace(/\.\d+$/, '')
+    .replace(/[\s-]+/g, '_')
+    .replace(/_?loop$/, '');
+}
+
+/**
+ * Which of a model's own clips stand in for the basic clips. Walk falls back to another travelling clip (swim, fly,
+ * gallop…) and run to a fast one or to walk, so animals and fish still move along their paths. Basic clips with no match are left out.
+ */
+export function basicClipRoles(names: readonly string[]): Partial<Record<BasicClip, string>> {
+  const roles: Partial<Record<BasicClip, string>> = {};
+  const normalized = names.map(normalizeClipName);
+  for (const basic of ACTOR_CLIPS) {
+    for (const rule of BASIC_CLIP_RULES[basic]) {
+      const i = normalized.findIndex((n) => rule.test(n));
+      if (i >= 0) {
+        roles[basic] = names[i];
+        break;
+      }
+    }
+  }
+  const travel = names.filter((n) => isTravelClip(n) && !/back|left|right/i.test(n));
+  roles.walk ??= travel.find((n) => !/fast|sprint|impulse/i.test(n)) ?? travel[0];
+  roles.run ??= travel.find((n) => /fast|sprint|gallop/i.test(n)) ?? roles.walk;
+  for (const k of ACTOR_CLIPS) if (roles[k] === undefined) delete roles[k];
+  return roles;
+}
+
 /** Travelling clips (walk, run, swim, fly…): an actor switches to idle when it reaches the end of its path. */
 export function isTravelClip(clip: string): boolean {
-  return clip === 'walk' || clip === 'run' || /walk|run|jog|sprint|crawl|swim|trot|strafe|sneak|wind|fly|glide/i.test(clip);
+  return clip === 'walk' || clip === 'run' || /walk|run|jog|sprint|crawl|swim|trot|gallop|strafe|sneak|wind|fly|glide/i.test(clip);
 }
 
 /** A sensible path speed (m/s) for a clip, or null to keep the current one. */

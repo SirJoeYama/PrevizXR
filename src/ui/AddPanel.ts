@@ -1,5 +1,16 @@
 import { ADD_ITEMS, CATEGORIES, type Category } from '../assets/catalog';
-import { loadPolyLibrary, polyAssetRef, polyPageUrl, polyThumbUrl, searchPoly, type PolyEntry } from '../assets/polyLibrary';
+import {
+  POLY_LIBRARIES,
+  loadPolyLibrary,
+  polyCreatorUrl,
+  polyLibrary,
+  polyPageUrl,
+  polySpawnable,
+  polyThumbUrl,
+  searchPoly,
+  type PolyEntry,
+  type PolyLibraryId,
+} from '../assets/polyLibrary';
 import { IMAGE_TYPES, deleteImage, importImage, imageUrl, listImages, onImagesChange, type StoredImage } from '../assets/imageLibrary';
 import type { Spawnable } from '../app/spawn';
 import { announce } from './announce';
@@ -12,7 +23,7 @@ export function imageItem(img: StoredImage): Spawnable {
   return { title: img.name, kind: 'prop', asset: { source: 'image', id: img.id, aspect: img.width / img.height } };
 }
 
-/** Spawn palette: bundled categories plus a searchable Poly by Google library. */
+/** Spawn palette: bundled categories plus searchable Poly Pizza libraries (Poly by Google, Quaternius). */
 export class AddPanel {
   readonly root: HTMLElement;
   private tab: Tab = 'actors';
@@ -20,7 +31,9 @@ export class AddPanel {
   private readonly grid: HTMLElement;
   private readonly search: HTMLInputElement;
   private readonly note: HTMLElement;
-  private library: PolyEntry[] | null = null;
+  private readonly libraries = new Map<PolyLibraryId, PolyEntry[]>();
+  private libraryId: PolyLibraryId = 'google';
+  private readonly sources: HTMLElement;
   private readonly imageTools: HTMLElement;
   private readonly fileInput: HTMLInputElement;
 
@@ -30,11 +43,16 @@ export class AddPanel {
     this.search = el('input', {
       class: 'input',
       type: 'search',
-      placeholder: 'Search 2,292 Poly models…',
-      'aria-label': 'Search the Poly by Google library',
       hidden: true,
       oninput: () => this.renderGrid(),
     });
+    this.sources = el(
+      'div',
+      { class: 'seg', role: 'group', 'aria-label': 'Model library', hidden: true },
+      ...POLY_LIBRARIES.map((lib) =>
+        el('button', { class: 'seg-btn', type: 'button', text: lib.creator, 'data-lib': lib.id, onclick: () => this.setLibrary(lib.id) }),
+      ),
+    );
     this.note = el('p', { class: 'hint', hidden: true });
     this.fileInput = el('input', {
       type: 'file',
@@ -54,8 +72,9 @@ export class AddPanel {
       el('p', { class: 'hint', text: 'Or drop images on the view, or paste (Ctrl+V). They float as reference planes, hidden from renders.' }),
       this.fileInput,
     );
-    this.root = section('Add', 'sb-add', this.tabs, this.search, this.imageTools, this.grid, this.note);
+    this.root = section('Add', 'sb-add', this.tabs, this.sources, this.search, this.imageTools, this.grid, this.note);
     this.renderTabs();
+    this.renderSources();
     this.renderGrid();
     onImagesChange(() => this.tab === 'images' && void this.renderImages());
 
@@ -170,6 +189,7 @@ export class AddPanel {
   private setTab(tab: Tab, fromKeyboard = false): void {
     this.tab = tab;
     this.search.hidden = tab !== 'library';
+    this.sources.hidden = tab !== 'library';
     this.imageTools.hidden = tab !== 'images';
     this.renderTabs(fromKeyboard);
     this.renderGrid();
@@ -179,16 +199,35 @@ export class AddPanel {
     }
   }
 
+  private setLibrary(id: PolyLibraryId): void {
+    if (id === this.libraryId) return;
+    this.libraryId = id;
+    this.renderSources();
+    this.renderGrid();
+    void this.ensureLibrary();
+  }
+
+  private renderSources(): void {
+    const lib = polyLibrary(this.libraryId);
+    for (const b of this.sources.querySelectorAll<HTMLElement>('[data-lib]')) b.setAttribute('aria-pressed', String(b.dataset.lib === lib.id));
+    const count = this.libraries.get(lib.id)?.length;
+    this.search.placeholder = `Search ${count ? count.toLocaleString('en') + ' ' : ''}${lib.creator} models…`;
+    this.search.setAttribute('aria-label', `Search the ${lib.creator} library`);
+  }
+
   private async ensureLibrary(): Promise<void> {
-    if (this.library) return;
+    const id = this.libraryId;
+    if (this.libraries.has(id)) return;
     this.note.hidden = false;
     this.note.textContent = 'Loading library…';
     try {
-      this.library = await loadPolyLibrary();
+      this.libraries.set(id, await loadPolyLibrary(id));
     } catch (err) {
-      this.note.textContent = (err as Error).message;
+      if (id === this.libraryId) this.note.textContent = (err as Error).message;
       return;
     }
+    if (id !== this.libraryId) return;
+    this.renderSources();
     this.renderGrid();
   }
 
@@ -205,21 +244,23 @@ export class AddPanel {
       );
       return;
     }
-    if (!this.library) {
+    const lib = polyLibrary(this.libraryId);
+    const entries = this.libraries.get(lib.id);
+    if (!entries) {
       this.grid.replaceChildren();
       return;
     }
-    const results = searchPoly(this.library, this.search.value, 60);
+    const results = searchPoly(entries, this.search.value, 60);
     this.grid.replaceChildren(
       ...results.map((e) =>
-        this.tile(e.title, polyThumbUrl(e.file), { title: e.title, kind: 'prop', asset: polyAssetRef(e) }, `Poly by Google · ${e.licence}`, polyPageUrl(e.id)),
+        this.tile(e.title, polyThumbUrl(e.file), polySpawnable(e), `${e.creator} · ${e.licence}${e.clips ? ` · ${e.clips.length} clips` : ''}`, polyPageUrl(e.id)),
       ),
     );
     this.note.hidden = false;
     this.note.replaceChildren(
       `${results.length === 60 ? 'First 60 matches. ' : ''}Models by `,
-      el('a', { href: 'https://poly.pizza/u/Poly%20by%20Google', target: '_blank', rel: 'noopener', text: 'Poly by Google' }),
-      ' (CC-BY 3.0) via Poly Pizza, loaded on demand. Credits are listed below.',
+      el('a', { href: polyCreatorUrl(lib), target: '_blank', rel: 'noopener', text: lib.creator }),
+      ` (${lib.licence}) via Poly Pizza, loaded on demand.${lib.id === 'quaternius' ? ' Animated models are added as actors with their own clips.' : ''} Credits are listed below.`,
     );
   }
 
