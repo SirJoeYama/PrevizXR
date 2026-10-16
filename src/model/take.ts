@@ -314,7 +314,7 @@ export function parseTake(input: unknown): Take {
     }
     if (!f.objects || typeof f.objects !== 'object') throw new TakeFormatError(`Frame ${i} has no objects.`);
     for (const [id, o] of Object.entries(f.objects)) {
-      if (!isN(o.p, 3) || !isN(o.q, 4) || !isN(o.s, 3)) throw new TakeFormatError(`Frame ${i}, object ${id} has an invalid pose.`);
+      if (!o || !isN(o.p, 3) || !isN(o.q, 4) || !isN(o.s, 3)) throw new TakeFormatError(`Frame ${i}, object ${id} has an invalid pose.`);
       if (o.clip !== undefined && !isClipName(o.clip)) throw new TakeFormatError(`Frame ${i}, object ${id} has an invalid clip.`);
     }
   });

@@ -212,6 +212,19 @@ describe('scene serialization', () => {
     expect(parseScene({ ...doc, objects: [prop] }).objects[0].motion).toEqual({ speed: 2, waypoints: [[1, 0, 2]], loop: false });
     const curved = { ...prop, motion: { speed: 1, waypoints: [[1, 0, 2]], loop: false, handles: [null, { in: [0, 0, -1], out: [0, 0, 1] }, { in: [1] }, 'x'] } };
     expect(parseScene({ ...doc, objects: [curved] }).objects[0].motion!.handles).toEqual([null, { in: [0, 0, -1], out: [0, 0, 1] }]);
+    const broken = { ...actor, actor: 'walk' };
+    expect(parseScene({ ...doc, objects: [broken] }).objects[0].actor).toEqual({ clip: 'idle', speed: 1.3, waypoints: [], loop: false });
+  });
+
+  it('repairs bad light settings instead of failing', () => {
+    const doc = createScene();
+    const light = { id: 'l', kind: 'light', name: 'L', asset: { source: 'light', id: 'spot' }, transform: identityTransform(), color: '#ffcc00' };
+    const parse = (l: unknown) => parseScene({ ...doc, objects: [{ ...light, light: l }] }).objects[0].light;
+    expect(parse({ color: '#ff8800', intensity: 5 })).toEqual({ color: '#ff8800', intensity: 5 });
+    expect(parse({ color: 5, intensity: 'x' })).toEqual({ color: '#ffffff', intensity: 120 });
+    expect(parse('bright')).toEqual({ color: '#ffffff', intensity: 120 });
+    expect(parse(undefined)).toEqual({ color: '#ffffff', intensity: 120 });
+    expect(parse({ color: '#123456', intensity: -1 })).toEqual({ color: '#123456', intensity: 120 });
   });
 });
 

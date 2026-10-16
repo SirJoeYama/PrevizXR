@@ -1,5 +1,5 @@
 import { ASPECTS, FPS_OPTIONS, SENSORS, clampFocal } from '../camera/lens';
-import { DEFAULT_MOTION_SPEED, isClipName, SCENE_FORMAT_VERSION, defaultCamera, type CameraRig, type MotionPath, type PathHandle, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
+import { DEFAULT_MOTION_SPEED, isClipName, LIGHT_SPAWN_INTENSITY, SCENE_FORMAT_VERSION, defaultCamera, type ActorSettings, type CameraRig, type MotionPath, type PathHandle, type Quat, type SceneDoc, type SceneObject, type Vec3 } from './scene';
 
 export class SceneFormatError extends Error {}
 
@@ -89,7 +89,8 @@ function parseObject(o: unknown, i: number): SceneObject {
     if (typeof a.aspect !== 'number' || !(a.aspect > 0) || !Number.isFinite(a.aspect)) a.aspect = 1;
   }
   if (obj.hiddenInRenders !== undefined) obj.hiddenInRenders = !!obj.hiddenInRenders;
-  if (obj.actor) {
+  if (obj.actor !== undefined) {
+    if (!isObj(obj.actor)) obj.actor = {} as ActorSettings;
     const a = obj.actor;
     if (!isClipName(a.clip)) a.clip = 'idle';
     repairPath(a, 1.3);
@@ -97,6 +98,13 @@ function parseObject(o: unknown, i: number): SceneObject {
   if (obj.motion !== undefined) {
     if (obj.actor || !isObj(obj.motion)) delete obj.motion;
     else repairPath(obj.motion, DEFAULT_MOTION_SPEED);
+  }
+  if (obj.light !== undefined || obj.asset.source === 'light') {
+    const l: Record<string, unknown> = isObj(obj.light) ? obj.light : {};
+    const color = typeof l.color === 'string' && /^#[0-9a-f]{6}$/i.test(l.color) ? l.color : '#ffffff';
+    const fallback = LIGHT_SPAWN_INTENSITY[obj.asset.id] ?? LIGHT_SPAWN_INTENSITY.point;
+    const intensity = typeof l.intensity === 'number' && Number.isFinite(l.intensity) && l.intensity >= 0 ? l.intensity : fallback;
+    obj.light = { color, intensity };
   }
   return obj;
 }

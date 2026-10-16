@@ -160,6 +160,9 @@ export interface LightSettings {
   intensity: number;
 }
 
+/** Starting intensity of each light type (candela for point/spot, lux for directional). */
+export const LIGHT_SPAWN_INTENSITY: Record<string, number> = { point: 30, spot: 120, directional: 2 };
+
 export interface SceneObject {
   id: string;
   kind: SceneObjectKind;

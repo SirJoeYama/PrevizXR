@@ -186,5 +186,7 @@ describe('parseTake', () => {
     const take = rec.finish(meta);
     expect(() => parseTake({ ...take, fps: 0 })).toThrow(/frame rate/);
     expect(() => parseTake({ ...take, frames: [{ camera: { p: [0, 0], q: [0, 0, 0, 1], focal: 35, focus: null }, objects: {} }] })).toThrow(/camera/);
+    const nullPose = { ...take, frames: [{ ...take.frames[0], objects: { a: null } }] };
+    expect(() => parseTake(nullPose)).toThrow(TakeFormatError);
   });
 });

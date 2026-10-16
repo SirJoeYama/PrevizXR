@@ -30,7 +30,7 @@ import { isOneShotClip } from '../assets/mesh2motion';
 import type { Editor } from '../model/Editor';
 import { polyline, resolveHandles, segments } from '../model/bezier';
 import { objectPoseAt, type ObjectPose } from '../model/motion';
-import { assetKey, basicClipRoles, pathOf, type ActorClip, type SceneObject } from '../model/scene';
+import { assetKey, basicClipRoles, LIGHT_SPAWN_INTENSITY, pathOf, type ActorClip, type SceneObject } from '../model/scene';
 import { drawLabel, makeLabel } from './labels';
 
 interface Entry {
@@ -56,8 +56,6 @@ interface Entry {
   path?: Group;
   pathSig: string;
 }
-
-export const LIGHT_SPAWN_INTENSITY = { point: 30, spot: 120, directional: 2 };
 
 const placeholderGeo = new EdgesGeometry(new BoxGeometry(0.5, 0.5, 0.5).translate(0, 0.25, 0));
 const placeholderMat = new LineBasicMaterial({ color: 0x8b93a5 });

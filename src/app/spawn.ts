@@ -1,7 +1,6 @@
 import type { CatalogItem } from '../assets/catalog';
 import { uniqueName, type Editor } from '../model/Editor';
-import { identityTransform, type Vec3 } from '../model/scene';
-import { LIGHT_SPAWN_INTENSITY } from '../sync/SceneSync';
+import { identityTransform, LIGHT_SPAWN_INTENSITY, type Vec3 } from '../model/scene';
 
 export type Spawnable = Pick<CatalogItem, 'title' | 'kind' | 'asset'>;
 
