@@ -6,6 +6,8 @@ import {
   BufferGeometry,
   Color,
   ConeGeometry,
+  CylinderGeometry,
+  DirectionalLight,
   EdgesGeometry,
   Group,
   Line,
@@ -347,6 +349,21 @@ export class SceneSync {
       cone.position.y = -0.08;
       cone.userData.helper = true;
       group.add(cone);
+    } else if (type === 'directional') {
+      // Parallel rays along the object's local -Y, like the spot, so rotating the object aims the light.
+      const sun = new DirectionalLight(color, intensity);
+      sun.target.position.set(0, -1, 0);
+      group.add(sun.target);
+      light = sun;
+      const arrow = new Group();
+      arrow.userData.helper = true;
+      const shaft = new Mesh(new CylinderGeometry(0.008, 0.008, 0.16, 8), new MeshBasicMaterial({ color }));
+      shaft.position.y = -0.14;
+      const tip = new Mesh(new ConeGeometry(0.03, 0.06, 12), new MeshBasicMaterial({ color }));
+      tip.rotation.x = Math.PI;
+      tip.position.y = -0.25;
+      arrow.add(shaft, tip);
+      group.add(arrow);
     } else {
       light = new PointLight(color, intensity, 0, 2);
     }
