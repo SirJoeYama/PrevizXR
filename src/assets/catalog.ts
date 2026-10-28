@@ -108,6 +108,7 @@ const PRIMITIVES: Array<[PrimitiveId, string]> = [
 const LIGHTS: Array<[LightType, string]> = [
   ['point', 'Point light'],
   ['spot', 'Spot light'],
+  ['directional', 'Directional light'],
 ];
 
 export const BUNDLED: CatalogItem[] = [
