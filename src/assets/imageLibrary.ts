@@ -48,8 +48,8 @@ async function hashId(blob: Blob): Promise<string> {
   return [...new Uint8Array(digest).slice(0, 12)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Decodes, downscales (JPEG unless the source is PNG, which may have transparency) and stores an image. */
-export async function importImage(file: Blob, name: string): Promise<StoredImage> {
+/** Decodes an image and, when it is larger than MAX_IMAGE_SIDE or of unknown type, re-encodes it to fit. */
+async function fitImage(file: Blob, name: string): Promise<{ blob: Blob; width: number; height: number }> {
   if (file.type && !IMAGE_TYPES.includes(file.type)) throw new Error(`${name}: use a JPG, PNG or WebP image.`);
   let bitmap: ImageBitmap;
   try {
@@ -65,6 +65,12 @@ export async function importImage(file: Blob, name: string): Promise<StoredImage
     blob = await canvas.convertToBlob(file.type === 'image/png' ? { type: 'image/png' } : { type: 'image/jpeg', quality: 0.9 });
   }
   bitmap.close();
+  return { blob, width, height };
+}
+
+/** Decodes, downscales (JPEG unless the source is PNG, which may have transparency) and stores an image. */
+export async function importImage(file: Blob, name: string): Promise<StoredImage> {
+  const { blob, width, height } = await fitImage(file, name);
   const id = await hashId(blob);
   const existing = await getImage(id);
   if (existing) return existing;
@@ -119,18 +125,25 @@ export async function embedImages(doc: Readonly<SceneDoc>): Promise<Record<strin
   return out;
 }
 
-/** Stores images embedded in an imported scene file (keeping their original ids). */
+/**
+ * Stores images embedded in an imported scene file (keeping their original ids, which the scene refers to).
+ * They go through the same type check and size limit as imported pictures; one that can't be read is
+ * skipped, and its plane shows the error box, rather than failing the whole import.
+ */
 export async function restoreEmbeddedImages(embedded: unknown): Promise<void> {
   if (!embedded || typeof embedded !== 'object') return;
   let added = false;
   for (const [id, value] of Object.entries(embedded as Record<string, { name?: string; data?: string }>)) {
     if (typeof value?.data !== 'string' || !value.data.startsWith('data:image/') || (await getImage(id))) continue;
-    const blob = await (await fetch(value.data)).blob();
-    const bitmap = await createImageBitmap(blob);
-    const record: StoredImage = { id, name: value.name ?? 'Image', blob, width: bitmap.width, height: bitmap.height, createdAt: Date.now() };
-    bitmap.close();
-    await run(IMAGES, 'readwrite', (s) => s.put(record));
-    added = true;
+    const name = typeof value.name === 'string' ? value.name : 'Image';
+    try {
+      const { blob, width, height } = await fitImage(await (await fetch(value.data)).blob(), name);
+      const record: StoredImage = { id, name, blob, width, height, createdAt: Date.now() };
+      await run(IMAGES, 'readwrite', (s) => s.put(record));
+      added = true;
+    } catch (err) {
+      console.warn(`Skipped embedded image ${id}`, err);
+    }
   }
   if (added) emit();
 }

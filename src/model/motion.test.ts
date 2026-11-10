@@ -111,3 +111,40 @@ describe('yawBetween', () => {
     expect(yawBetween([0, 0, 0], [1, 0, 0])).toBeCloseTo(Math.PI / 2);
   });
 });
+
+describe('samplePath caching', () => {
+  const fresh = () => ({ waypoints: [[4, 0, 0], [4, 0, 3]] as Vec3[], speed: 2, loop: false, handles: sharp(3) as Array<PathHandle | null> });
+
+  it('follows a path that is edited in place, as a drag does', () => {
+    const p = fresh();
+    expect(close(samplePath(start, p, 1).position)).toEqual([2, 0, 0]);
+    p.waypoints[0][2] = 4; // first leg now runs along +Z
+    p.waypoints[0][0] = 0;
+    expect(close(samplePath(start, p, 1).position)).toEqual([0, 0, 2]);
+    p.waypoints.push([4, 0, 10]);
+    p.handles.push({ in: [0, 0, 0], out: [0, 0, 0] });
+    expect(close(samplePath(start, p, 100).position)).toEqual([4, 0, 10]);
+  });
+
+  it('follows a moved start, a changed handle and the loop flag', () => {
+    const p = fresh();
+    samplePath(start, p, 1);
+    expect(close(samplePath([0, 0, 1], p, 100).position)).toEqual([4, 0, 3]);
+    expect(samplePath([0, 0, 1], p, 0.1).position[2]).toBeLessThan(1);
+    const straight = samplePath(start, p, 1).position;
+    p.handles[0] = { in: [0, 0, 0], out: [0, 0, 3] };
+    expect(samplePath(start, p, 1).position).not.toEqual(straight);
+    p.handles[0] = { in: [0, 0, 0], out: [0, 0, 0] };
+    expect(samplePath(start, fresh(), 1).position).toEqual(straight);
+    const open = samplePath(start, p, 100);
+    p.loop = true;
+    expect(samplePath(start, p, 100).moving).toBe(true);
+    expect(open.moving).toBe(false);
+  });
+
+  it('gives the same result as an identical path seen for the first time', () => {
+    const a = fresh();
+    for (const t of [0.3, 1.7, 2.9]) samplePath(start, a, t);
+    for (const t of [0.3, 1.7, 2.9]) expect(samplePath(start, a, t)).toEqual(samplePath(start, fresh(), t));
+  });
+});

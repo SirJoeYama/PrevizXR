@@ -26,7 +26,13 @@ import { CAMERA_ID, type CameraRig } from '../model/scene';
 import type { SceneSync } from '../sync/SceneSync';
 import type { CameraSample } from '../model/take';
 import { drawGuides, type HudStatus } from './guides';
-import { ASPECTS, verticalFovDeg } from './lens';
+import { ASPECTS, verticalFovDeg, type AspectId, type SensorId } from './lens';
+
+/** The sensor and aspect ratio a shot is framed for. */
+export interface CameraFormat {
+  sensor: SensorId;
+  aspect: AspectId;
+}
 
 const MONITOR_SIZE = 0.2; // metres, longest side
 const MONITOR_PIXELS = 640; // render target, longest side
@@ -45,6 +51,8 @@ const FRUSTUM_LENGTH = 1.2; // metres
 const DETACHED_SCALE = 3;
 const AUTOFOCUS_INTERVAL = 0.1; // seconds (doubled in VR: raycasting skinned actors costs CPU)
 const floorPlane = new Plane(new Vector3(0, 1, 0), 0);
+const FRAME_CENTRE = new Vector2(0, 0);
+const floorHit = new Vector3();
 
 /**
  * The scene's virtual camera: a PerspectiveCamera posed from the model's CameraRig, with an
@@ -66,6 +74,8 @@ export class VirtualCamera {
   private override: CameraSample | null = null;
   /** Keep autofocusing while overridden (previewing the keyframed path, which has no recorded focus). */
   private overrideAutofocus = false;
+  /** Sensor and aspect the override was shot with (a take's own), instead of the scene lens. */
+  private overrideFormat: CameraFormat | null = null;
   /** The monitor (screen, frame and HUD); detachable in VR so it can be watched away from the camera. */
   readonly monitorGroup = new Group();
   private monitorDetached = false;
@@ -163,11 +173,22 @@ export class VirtualCamera {
    * Shows a camera sample instead of the model's camera (take playback, path preview); null returns to the model.
    * With `autofocus`, focus keeps being measured (or taken from manual focus) instead of coming from the sample.
    */
-  setOverride(sample: CameraSample | null, autofocus = false): void {
+  setOverride(sample: CameraSample | null, autofocus = false, format: CameraFormat | null = null): void {
     this.override = sample;
     this.overrideAutofocus = autofocus;
+    this.overrideFormat = sample ? format : null;
     if (sample && !autofocus) this.focusDistance = sample.focus;
     this.apply();
+  }
+
+  /** Sensor in use right now (the take's while one plays back). */
+  get sensor(): SensorId {
+    return this.overrideFormat?.sensor ?? this.rig.lens.sensor;
+  }
+
+  /** Aspect ratio in use right now (the take's while one plays back). */
+  get aspect(): AspectId {
+    return this.overrideFormat?.aspect ?? this.rig.lens.aspect;
   }
 
   get isMonitorDetached(): boolean {
@@ -198,17 +219,17 @@ export class VirtualCamera {
 
   /** Pose and lens from the model, or from the playback override. */
   apply(): void {
-    const { transform, lens } = this.rig;
+    const { transform } = this.rig;
     const o = this.override;
     this.root.position.fromArray(o?.p ?? transform.position);
     this.root.quaternion.fromArray(o?.q ?? transform.rotation);
     const focal = this.focalLength;
-    const sig = `${focal}|${lens.sensor}|${lens.aspect}`;
+    const sig = `${focal}|${this.sensor}|${this.aspect}`;
     if (sig === this.lensSig) return;
     this.lensSig = sig;
 
-    const aspect = ASPECTS[lens.aspect];
-    this.camera.fov = verticalFovDeg(focal, lens.sensor, lens.aspect);
+    const aspect = ASPECTS[this.aspect];
+    this.camera.fov = verticalFovDeg(focal, this.sensor, this.aspect);
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
 
@@ -243,26 +264,33 @@ export class VirtualCamera {
   /** Distance to whatever is under the frame centre (scene objects or floor), or null. */
   private measureFocus(): number | null {
     this.root.updateMatrixWorld(true);
-    this.raycaster.setFromCamera(new Vector2(0, 0), this.camera);
+    this.raycaster.setFromCamera(FRAME_CENTRE, this.camera);
     this.raycaster.far = 500;
     const hit = this.raycaster.intersectObject(this.sync.root, true).find((h) => !this.sync.inlineHelpers.has(h.object));
     let d = hit?.distance ?? Infinity;
-    const floor = this.raycaster.ray.intersectPlane(floorPlane, new Vector3());
+    const floor = this.raycaster.ray.intersectPlane(floorPlane, floorHit);
     if (floor) d = Math.min(d, floor.distanceTo(this.raycaster.ray.origin));
     return Number.isFinite(d) ? d : null;
   }
 
   private drawOverlay(): void {
     const lens = this.rig.lens;
+    const sensor = this.sensor;
+    const aspect = this.aspect;
     const focus = this.focusDistance === null ? '∞' : this.focusDistance.toFixed(2);
     const status = this.status();
-    const sig = JSON.stringify(lens) + focus + this.focalLength.toFixed(1) + JSON.stringify(status, (_k, v) => (typeof v === 'number' ? v.toFixed(1) : v));
+    // Everything drawGuides shows, at the precision it shows it. Built every frame, so no JSON.stringify here.
+    const g = lens.guides;
+    const sig =
+      `${sensor}|${aspect}|${lens.fps}|${lens.focusMode}|${g.thirds}|${g.safe}|${g.center}|${focus}|${this.focalLength.toFixed(1)}|` +
+      `${status?.countdown === undefined ? '' : Math.ceil(status.countdown)}|${status?.recording?.toFixed(1) ?? ''}|` +
+      (status?.playing ? `${status.playing.name}|${status.playing.time.toFixed(1)}` : '');
     if (sig === this.overlaySig) return;
     this.overlaySig = sig;
     const c = this.overlayCanvas;
     const ctx = c.getContext('2d')!;
     ctx.clearRect(0, 0, c.width, c.height);
-    drawGuides(ctx, 0, 0, c.width, c.height, { lens, focus: this.focusDistance, focal: this.focalLength, status });
+    drawGuides(ctx, 0, 0, c.width, c.height, { lens: this.overrideFormat ? { ...lens, sensor, aspect } : lens, focus: this.focusDistance, focal: this.focalLength, status });
     this.overlayTexture.needsUpdate = true;
   }
 

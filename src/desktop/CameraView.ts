@@ -202,7 +202,7 @@ export class CameraView {
   /** Largest rectangle of the shot's aspect ratio that fits the canvas (CSS pixels, top-left origin). */
   private letterbox(): Rect {
     const { clientWidth: W, clientHeight: H } = this.app.renderer.domElement;
-    const a = ASPECTS[this.editor.doc.camera.lens.aspect];
+    const a = ASPECTS[this.vcam.aspect];
     const w = Math.min(W, H * a);
     const h = w / a;
     return { x: (W - w) / 2, y: (H - h) / 2, w, h };
@@ -210,7 +210,7 @@ export class CameraView {
 
   private pipRect(): Rect {
     const { clientWidth: W, clientHeight: H } = this.app.renderer.domElement;
-    const a = ASPECTS[this.editor.doc.camera.lens.aspect];
+    const a = ASPECTS[this.vcam.aspect];
     let w = Math.min(PIP_MAX_W, W * 0.35);
     let h = w / a;
     if (h > H * 0.45) {

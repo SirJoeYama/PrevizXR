@@ -152,6 +152,18 @@ describe('keyframed camera', () => {
     expect(s.q).toEqual(slerp(keys[0].rotation, turn, 0.5));
   });
 
+  it('follows keys that are moved or reshaped in place, as a drag does', () => {
+    const moving: CameraKey[] = structuredClone(keys);
+    const before = sampleKeyframes(moving, 1).p;
+    moving[1].position[1] = 5;
+    const moved = sampleKeyframes(moving, 1).p;
+    expect(moved).not.toEqual(before);
+    expect(moved).toEqual(sampleKeyframes(structuredClone(moving), 1).p);
+    moving[0].handles = { in: [0, 0, 0], out: [0, 2, 0] };
+    expect(sampleKeyframes(moving, 1).p).not.toEqual(moved);
+    expect(sampleKeyframes(moving, 1).p).toEqual(sampleKeyframes(structuredClone(moving), 1).p);
+  });
+
   it('bakes into a take with one frame per 1/fps up to the last key', () => {
     const ed = new Editor();
     ed.updateLens((l) => (l.fps = 25));

@@ -89,10 +89,10 @@ export class Editor {
 
   /** Applies a mutation as one undoable step. */
   edit(mutate: (doc: SceneDoc) => void): void {
-    const before = cloneDoc(this.current);
+    // The outgoing document becomes the undo snapshot as it is: nothing mutates it once it is replaced.
     const next = cloneDoc(this.current);
     mutate(next);
-    this.pushHistory(this.pending ?? before);
+    this.pushHistory(this.pending ?? this.current);
     this.pending = null;
     this.current = next;
     this.afterDocChange();
@@ -126,6 +126,8 @@ export class Editor {
   }
 
   redo(): void {
+    // A drag in progress is a new edit: it becomes its own undo step and leaves nothing to redo.
+    this.commit();
     const next = this.future.pop();
     if (!next) return;
     this.past.push(this.current);

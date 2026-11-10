@@ -29,6 +29,8 @@ export interface LoadedAsset {
    * clips (idle, walk, run, sit). Without it, basic clips are found by matching clip names.
    */
   roles?: Record<string, string>;
+  /** Frees what this instance alone owns (models cloned from the cache share their geometry and are left alone). */
+  dispose?: () => void;
 }
 
 /** Loads and caches models. Each call returns an independent clone (skeletons included). */
@@ -41,7 +43,7 @@ export class AssetLoader {
   async load(ref: AssetRef): Promise<LoadedAsset> {
     switch (ref.source) {
       case 'primitive':
-        return { object: buildPrimitive(ref.id as PrimitiveId), clips: [] };
+        return owned(buildPrimitive(ref.id as PrimitiveId), false);
       case 'light':
         throw new Error('Lights have no model');
       case 'bundled': {
@@ -51,7 +53,7 @@ export class AssetLoader {
       case 'poly':
         return this.loadGlb(polyModelUrl(ref.file), ref.fit);
       case 'image':
-        return { object: await this.buildPicture(ref.id, ref.aspect), clips: [] };
+        return owned(await this.buildPicture(ref.id, ref.aspect), true);
       case 'm2m':
         return this.loadM2M(ref.id);
     }
@@ -145,6 +147,23 @@ export class AssetLoader {
     const model = cloneSkinned(gltf.scene);
     return { object: normalize(model, fit), clips: gltf.animations };
   }
+}
+
+/**
+ * An asset built for one scene object: its geometries are its own, and so are its unlit materials when
+ * `materials` is set (picture planes). Shared standard materials and cached textures are kept.
+ */
+function owned(object: Object3D, materials: boolean): LoadedAsset {
+  return {
+    object,
+    clips: [],
+    dispose: () =>
+      object.traverse((o) => {
+        if (!(o instanceof Mesh)) return;
+        o.geometry.dispose();
+        if (materials && o.material instanceof MeshBasicMaterial) o.material.dispose();
+      }),
+  };
 }
 
 const box = new Box3();

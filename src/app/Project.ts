@@ -22,6 +22,11 @@ export class Project {
     editor.subscribe((change) => {
       if (change === 'doc') this.scheduleSave();
     });
+    // Hiding the page is the last moment a write reliably starts (tab closed, app switched on a headset);
+    // pagehide alone is too late for some browsers.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') void this.flush();
+    });
     window.addEventListener('pagehide', () => void this.flush());
   }
 
@@ -64,9 +69,15 @@ export class Project {
   }
 
   async remove(id: string): Promise<void> {
+    const current = id === this.editor.doc.id;
+    // Drop a pending autosave of the scene being deleted, or it would be written back afterwards.
+    if (current) this.cancelSave();
     await deleteScene(id);
     await deleteTakesOfScene(id);
-    if (id === this.editor.doc.id) this.newScene();
+    if (current && id === this.editor.doc.id) {
+      this.cancelSave();
+      this.open(createScene());
+    }
   }
 
   /** Imports a scene file. A scene with the same id as an existing one gets a fresh id so nothing is overwritten. */
@@ -93,9 +104,13 @@ export class Project {
 
   async flush(): Promise<void> {
     if (!this.saveTimer) return;
+    this.cancelSave();
+    await this.save();
+  }
+
+  private cancelSave(): void {
     clearTimeout(this.saveTimer);
     this.saveTimer = 0;
-    await this.save();
   }
 
   private open(doc: SceneDoc): void {
