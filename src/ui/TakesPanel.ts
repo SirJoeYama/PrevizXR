@@ -3,6 +3,7 @@ import { formatTime } from '../camera/guides';
 import type { Editor } from '../model/Editor';
 import { hasEditedHandles, smoothPath } from '../model/pathEdit';
 import { CAMERA_ID, type CameraKey } from '../model/scene';
+import { announce } from './announce';
 import { el, isTyping, section, setValue } from './dom';
 
 /** Record, play, smooth, rename, import and export takes (R records). */
@@ -14,6 +15,8 @@ export class TakesPanel {
   private readonly details: HTMLElement;
   private readonly error: HTMLElement;
   private selectedId: string | null = null;
+  /** The recording error already on screen (so it is shown and announced once). */
+  private shownError: string | null = null;
 
   constructor(
     private readonly takes: Takes,
@@ -74,6 +77,12 @@ export class TakesPanel {
   private render(): void {
     this.renderStatus();
     const t = this.takes;
+    if (t.error && t.error !== this.shownError) {
+      this.error.textContent = t.error;
+      this.error.hidden = false;
+      announce(t.error);
+    }
+    this.shownError = t.error;
     if (this.selectedId && !t.list.some((x) => x.id === this.selectedId)) this.selectedId = null;
     this.list.replaceChildren(
       ...(t.list.length

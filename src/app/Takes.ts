@@ -27,6 +27,8 @@ export class Takes {
   playTime = 0;
   /** Loop playback until stopped. */
   loop = false;
+  /** Why the last recording could not be saved, until the next one starts. */
+  error: string | null = null;
   private countdown = 0;
   private recorder: TakeRecorder | null = null;
   private sceneId = '';
@@ -75,6 +77,7 @@ export class Takes {
 
   startCountdown(): void {
     this.stop();
+    this.error = null;
     this.countdown = COUNTDOWN_SECONDS;
     this.state = 'countdown';
     this.sync.setPreviewTime(0);
@@ -205,7 +208,8 @@ export class Takes {
     this.recorder = null;
     if (this.playback.playing) this.playback.stop();
     if (!rec || rec.frames.length < 2) return;
-    const doc = this.editor.doc;
+    // The scene as it was when recording began: opening another scene is one of the things that stops a recording.
+    const doc = rec.doc;
     const lens = doc.camera.lens;
     const take = rec.finish({
       id: createId(),
@@ -221,6 +225,7 @@ export class Takes {
       await saveTake(take);
     } catch (err) {
       console.error('Could not save the take', err);
+      this.error = `${take.name} could not be saved: ${storageMessage(err)}`;
     }
     await this.refresh();
   }
@@ -238,7 +243,7 @@ export class Takes {
   private applySample(): void {
     const sample = sampleTake(this.current!, this.playTime);
     this.sync.setTakePoses(sample.objects);
-    this.vcam.setOverride(sample.camera);
+    this.vcam.setOverride(sample.camera, false, this.current!);
   }
 
   private nextName(prefix: string): string {
@@ -261,4 +266,9 @@ export class Takes {
   private emit(): void {
     for (const l of this.listeners) l();
   }
+}
+
+function storageMessage(err: unknown): string {
+  if (err instanceof DOMException && err.name === 'QuotaExceededError') return 'browser storage is full. Delete old takes or scenes, then record again.';
+  return err instanceof Error && err.message ? err.message : 'browser storage is unavailable.';
 }

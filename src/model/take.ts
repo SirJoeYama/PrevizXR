@@ -1,5 +1,5 @@
 import { isClipName, type CameraKey, type Quat, type SceneDoc, type SceneObjectKind, type Vec3 } from './scene';
-import { bezierPoint, resolveHandles, segments } from './bezier';
+import { bezierPoint, resolveHandles, segments, type Segment } from './bezier';
 import { lerp, lerp3, normalizeQuat, r5, round3, round4, slerp } from './math';
 import { objectPoseAt, type ObjectPose } from './motion';
 import type { AspectId, SensorId } from '../camera/lens';
@@ -113,7 +113,8 @@ export class TakeRecorder {
 
   constructor(
     readonly fps: number,
-    private readonly doc: Readonly<SceneDoc>,
+    /** The scene the take is recorded in (a snapshot: later edits don't reach the take). */
+    readonly doc: Readonly<SceneDoc>,
   ) {}
 
   /** Time of the next frame to be emitted. */
@@ -255,13 +256,47 @@ export function sampleKeyframes(keys: readonly CameraKey[], t: number): Omit<Cam
   const k1 = keys[i];
   const k2 = keys[i + 1];
   const u = k2.time > k1.time ? (t - k1.time) / (k2.time - k1.time) : 1;
-  const points = keys.map((k) => k.position);
-  const handles = resolveHandles(points, keys.map((k) => k.handles), false);
   return {
-    p: bezierPoint(segments(points, handles, false)[i], u),
+    p: bezierPoint(keySegments(keys)[i], u),
     q: slerp(k1.rotation, k2.rotation, u),
     focal: lerp(k1.focalLength, k2.focalLength, u),
   };
+}
+
+const keySegmentCache = new WeakMap<object, { key: number[]; segs: Segment[] }>();
+
+/**
+ * Bézier segments of a camera path, kept per keyframe array until a position or handle changes
+ * (previewing and baking sample the same path once per frame).
+ */
+function keySegments(keys: readonly CameraKey[]): Segment[] {
+  const hit = keySegmentCache.get(keys);
+  if (hit && sameKeyGeometry(hit.key, keys)) return hit.segs;
+  const points = keys.map((k) => k.position);
+  const segs = segments(points, resolveHandles(points, keys.map((k) => k.handles), false), false);
+  const key: number[] = [keys.length];
+  for (const k of keys) {
+    key.push(k.position[0], k.position[1], k.position[2]);
+    if (k.handles) key.push(1, ...k.handles.in, ...k.handles.out);
+    else key.push(0);
+  }
+  keySegmentCache.set(keys, { key, segs });
+  return segs;
+}
+
+/** The key built in keySegments still describes `keys`, compared without allocating. */
+function sameKeyGeometry(key: readonly number[], keys: readonly CameraKey[]): boolean {
+  if (key[0] !== keys.length) return false;
+  let n = 1;
+  for (const { position: p, handles: h } of keys) {
+    if (key[n++] !== p[0] || key[n++] !== p[1] || key[n++] !== p[2]) return false;
+    if (!h) {
+      if (key[n++] !== 0) return false;
+    } else if (key[n++] !== 1 || key[n++] !== h.in[0] || key[n++] !== h.in[1] || key[n++] !== h.in[2] || key[n++] !== h.out[0] || key[n++] !== h.out[1] || key[n++] !== h.out[2]) {
+      return false;
+    }
+  }
+  return n === key.length;
 }
 
 /**
@@ -309,7 +344,7 @@ export function parseTake(input: unknown): Take {
   const isN = (v: unknown, n: number) => Array.isArray(v) && v.length === n && v.every((x) => typeof x === 'number' && Number.isFinite(x));
   d.frames.forEach((f, i) => {
     const c = f?.camera;
-    if (!c || !isN(c.p, 3) || !isN(c.q, 4) || typeof c.focal !== 'number' || (c.focus !== null && typeof c.focus !== 'number')) {
+    if (!c || !isN(c.p, 3) || !isN(c.q, 4) || !isN([c.focal], 1) || !(c.focal > 0) || (c.focus !== null && !isN([c.focus], 1))) {
       throw new TakeFormatError(`Frame ${i} has an invalid camera.`);
     }
     if (!f.objects || typeof f.objects !== 'object') throw new TakeFormatError(`Frame ${i} has no objects.`);

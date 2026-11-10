@@ -52,7 +52,8 @@ src/
                        pose (pure COCO-18 keypoints + drawing), poseExtractor (bones → keypoints), cameraExport (JSON + glTF),
                        manifest (pure), png (JS PNG encoder), sinks (Mp4Sink via Mediabunny, PngSequenceSink, zipFiles),
                        TakeRenderer (offline frame loop + bundle)
-  storage/             db (IndexedDB v3: scenes, takes, images), sceneStore, takeStore
+  storage/             db (IndexedDB v4: scenes, takes, takeSummaries, images; `transact` resolves on commit), sceneStore, takeStore (each take has a
+                       summary record written in the same transaction; lists read only summaries)
   ui/                  Layout (top bar + left Add panel + viewport overlay + right properties tabs), TopBar, AddPanel,
                        RightPanel (Object: Outliner + InspectorPanel; Camera: camera InspectorPanel + CameraPanel +
                        CameraPathPanel; Takes: TakesPanel), ViewportOverlay, RenderDialog, popover (menus, Modal),
@@ -84,6 +85,8 @@ All seven milestones are done. See the README roadmap.
 - Units: metres, seconds, millimetres for focal length and sensor sizes. Rotations in the model are quaternions `[x, y, z, w]`.
 - File formats carry `format` and `version` fields; bump the version and add a migration when the shape changes.
 - VR input: controllers and tracked hands. Hands use the input source's select events (pinch) via `XREditor.updateTrackedHand`. `prefs.leftHanded` swaps the pointer and menu hands, so never hard-code 'left'/'right'; use `dominantHand()` / `isOffHand()`. Per-device preferences live in `app/prefs.ts` (localStorage), never in scene files.
+- Path sampling is cached per path object (`measuredPath` in motion.ts, `keySegments` in take.ts) and revalidated by value, because drags mutate paths in place. Anything new that shapes a curve must be added to those keys.
+- Assets built per object return a `dispose` in `LoadedAsset`; `SceneSync.setContent` calls it. Models cloned from the GLB cache share geometry and must not be disposed.
 - Performance: in VR, `Studio` steps `VirtualCamera.setMonitorQuality()` by measured FPS (MONITOR_LEVELS). Keep per-frame work off the hot path (no allocations, throttle precise bounds and raycasts against skinned meshes).
 - UI: styles are tokens + components in styles.css (no framework). Prefer icon buttons with `title` and `aria-label`, and toggle buttons with `aria-pressed`. Keep the top bar for scene-wide actions, the right panel for properties of what's selected, and the viewport toolbar for view/gizmo tools.
 - Accessibility: new UI must be keyboard reachable with visible focus; announce state changes that happen away from focus with `ui/announce.ts`; toggle groups use `aria-pressed`, tabs follow the WAI-ARIA pattern (see AddPanel).

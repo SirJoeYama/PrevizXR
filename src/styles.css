@@ -64,7 +64,7 @@ a { color: var(--focus); }
 
 /* Narrow screens: panels become drawers over the viewport. */
 @media (max-width: 900px) {
-  #app, #app[data-left='closed'], #app[data-right='closed'] { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'top' 'view'; }
+  #app, #app[data-left='closed'], #app[data-right='closed'], #app[data-left='closed'][data-right='closed'] { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'top' 'view'; }
   #left-panel, #right-panel { grid-area: view; z-index: 20; width: min(340px, 88vw); box-shadow: var(--shadow); }
   #right-panel { justify-self: end; }
   .tb-btn .label { display: none; }

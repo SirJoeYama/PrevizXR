@@ -4,7 +4,6 @@ import {
   BoxGeometry,
   Box3Helper,
   BufferGeometry,
-  Color,
   ConeGeometry,
   CylinderGeometry,
   DirectionalLight,
@@ -40,6 +39,8 @@ interface Entry {
   root: Group;
   key: string;
   content: Object3D | null;
+  /** Frees GPU resources owned by `content` alone (see LoadedAsset.dispose). */
+  disposeContent?: () => void;
   /** Bumped on each (re)load so a slow load can't overwrite a newer one. */
   loadToken: number;
   height: number;
@@ -63,6 +64,17 @@ const placeholderGeo = new EdgesGeometry(new BoxGeometry(0.5, 0.5, 0.5).translat
 const placeholderMat = new LineBasicMaterial({ color: 0x8b93a5 });
 const errorMat = new LineBasicMaterial({ color: 0xff4d4d });
 const tmpBox = new Box3();
+
+/** Frees a light object built by SceneSync.buildLight: the light itself and its editor-only meshes. */
+function disposeLight(group: Object3D): void {
+  group.traverse((o) => {
+    if (o instanceof Mesh) {
+      o.geometry.dispose();
+      (o.material as MeshBasicMaterial).dispose();
+    }
+    (o as Partial<Light>).dispose?.();
+  });
+}
 const pathDotGeo = new SphereGeometry(0.06, 12, 8);
 
 /**
@@ -222,23 +234,20 @@ export class SceneSync {
     e.label.material.map?.dispose();
     e.label.material.dispose();
     this.removePath(e);
-    e.mixer?.stopAllAction();
+    this.stopClips(e);
     this.entries.delete(e.id);
   }
 
   private async loadContent(e: Entry, obj: SceneObject): Promise<void> {
     const token = ++e.loadToken;
     this.setContent(e, null);
-    e.mixer?.stopAllAction();
-    e.mixer = undefined;
-    e.actions.clear();
-    e.activeClip = undefined;
-    e.activeAction = undefined;
+    this.stopClips(e);
     e.requestedClips.clear();
     e.libraryKey = obj.asset.source === 'm2m' ? obj.asset.id : undefined;
 
     if (obj.asset.source === 'light') {
-      this.setContent(e, this.buildLight(e, obj));
+      const light = this.buildLight(e, obj);
+      this.setContent(e, light, () => disposeLight(light));
       return;
     }
 
@@ -246,9 +255,12 @@ export class SceneSync {
     placeholder.userData.helper = true;
     this.setContent(e, placeholder);
     try {
-      const { object, clips, roles } = await this.loader.load(obj.asset);
-      if (token !== e.loadToken || !this.entries.has(e.id)) return;
-      this.setContent(e, object);
+      const { object, clips, roles, dispose } = await this.loader.load(obj.asset);
+      if (token !== e.loadToken || !this.entries.has(e.id)) {
+        dispose?.(); // removed or replaced while loading
+        return;
+      }
+      this.setContent(e, object, dispose);
       if (clips.length) this.setupClips(e, object, clips, roles);
       const current = this.editor.find(e.id);
       if (current) this.applyPose(current);
@@ -261,12 +273,15 @@ export class SceneSync {
     }
   }
 
-  private setContent(e: Entry, content: Object3D | null): void {
+  private setContent(e: Entry, content: Object3D | null, dispose?: () => void): void {
     if (e.content) {
       e.root.remove(e.content);
       e.content.traverse((o) => this.inlineHelpers.delete(o));
+      e.disposeContent?.();
+      if (e.light && e.content !== content) e.light = undefined;
     }
     e.content = content;
+    e.disposeContent = dispose;
     if (!content) return;
     e.root.add(content);
     content.traverse((o) => {
@@ -274,6 +289,18 @@ export class SceneSync {
     });
     tmpBox.setFromObject(content, true);
     e.height = tmpBox.isEmpty() ? 0.5 : Math.max(tmpBox.max.y, 0.2);
+  }
+
+  /** Stops an entry's animation and releases the mixer's cached bindings for its model. */
+  private stopClips(e: Entry): void {
+    if (e.mixer) {
+      e.mixer.stopAllAction();
+      e.mixer.uncacheRoot(e.mixer.getRoot());
+    }
+    e.mixer = undefined;
+    e.actions.clear();
+    e.activeClip = undefined;
+    e.activeAction = undefined;
   }
 
   /** Every clip by name, plus the basic clips: the loader's roles (Mesh2Motion) or matched by clip name. */
@@ -380,7 +407,7 @@ export class SceneSync {
     e.light.color.set(obj.light.color);
     e.light.intensity = obj.light.intensity;
     e.content?.traverse((o) => {
-      if (o instanceof Mesh && o.material instanceof MeshBasicMaterial) o.material.color = new Color(obj.light!.color);
+      if (o instanceof Mesh && o.material instanceof MeshBasicMaterial) o.material.color.set(obj.light!.color);
     });
   }
 
@@ -416,12 +443,19 @@ export class SceneSync {
   /** The path drawn as its Bézier curve, with a dot per waypoint. */
   private updatePath(e: Entry, obj: SceneObject): void {
     const path = pathOf(obj);
-    const points = path && path.waypoints.length ? [obj.transform.position, ...path.waypoints] : [];
+    // This runs for every object on every edit, drag frames included: objects without a path leave early.
+    if (!path?.waypoints.length) {
+      if (e.pathSig) {
+        e.pathSig = '';
+        this.removePath(e);
+      }
+      return;
+    }
+    const points = [obj.transform.position, ...path.waypoints];
     const sig = `${obj.color}|${JSON.stringify(points)}|${path?.loop}|${JSON.stringify(path?.handles ?? null)}`;
     if (sig === e.pathSig) return;
     e.pathSig = sig;
     this.removePath(e);
-    if (!path || !points.length) return;
 
     const group = new Group();
     group.userData.helper = true;

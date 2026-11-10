@@ -71,10 +71,12 @@ export class Studio {
     app.onFrame((dt) => {
       if (app.renderer.xr.isPresenting && (perfTimer += dt) > 2) {
         perfTimer = 0;
-        if (app.fps < 66) {
+        // Thresholds follow the session's refresh rate (72 Hz on Quest): missing it by 8% steps down.
+        const target = app.xrSession.frameRate;
+        if (app.fps < target * 0.92) {
           this.camera.setMonitorQuality(this.camera.monitorQuality + 1);
           goodChecks = 0;
-        } else if (app.fps > 71 && ++goodChecks >= 3 && this.camera.monitorQuality > 1) {
+        } else if (app.fps > target * 0.985 && ++goodChecks >= 3 && this.camera.monitorQuality > 1) {
           this.camera.setMonitorQuality(this.camera.monitorQuality - 1);
           goodChecks = 0;
         }

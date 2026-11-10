@@ -30,6 +30,7 @@ export class XRSessionManager extends EventDispatcher<XRSessionEvents> {
   /** Mode of the running session, or null. */
   mode: XRMode | null = null;
   private session: XRSession | null = null;
+  private starting = false;
 
   constructor(private readonly renderer: WebGLRenderer) {
     super();
@@ -38,6 +39,11 @@ export class XRSessionManager extends EventDispatcher<XRSessionEvents> {
 
   get presenting(): boolean {
     return this.session !== null;
+  }
+
+  /** Display refresh rate the session runs at, in Hz (72 when the browser doesn't report it). */
+  get frameRate(): number {
+    return this.session?.frameRate ?? 72;
   }
 
   private async detect(): Promise<void> {
@@ -60,9 +66,19 @@ export class XRSessionManager extends EventDispatcher<XRSessionEvents> {
       await this.session.end();
       return;
     }
-    if (!navigator.xr) return;
+    // A second click while the headset is still asking for permission must not request another session.
+    if (!navigator.xr || this.starting) return;
+    this.starting = true;
+    try {
+      await this.start(mode);
+    } finally {
+      this.starting = false;
+    }
+  }
+
+  private async start(mode: XRMode): Promise<void> {
     this.dispatchEvent({ type: 'beforestart' });
-    const session = await navigator.xr.requestSession(SESSION_TYPE[mode], SESSION_INIT);
+    const session = await navigator.xr!.requestSession(SESSION_TYPE[mode], SESSION_INIT);
     session.addEventListener('end', () => {
       this.session = null;
       this.mode = null;
